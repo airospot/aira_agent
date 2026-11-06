@@ -596,6 +596,8 @@ def assistant_propose():
         current_app.logger.exception("agent_memory_persist_failed")
         memory_error = "Yanıt üretildi ancak bellek yazılamadı."
 
+    # Persist reply on the submission even if conversation memory write fails,
+    # so a completed reservation can replay without re-running the LLM.
     payload = {
         "session_id": session_id,
         "submission_id": submission_id,
@@ -603,6 +605,8 @@ def assistant_propose():
         "user_memory_id": persist_result.get("user_memory_id"),
         "memory_error": memory_error,
         "flow_status": status,
+        "assistant_text": assistant_text,
+        "agent_reply": agent_reply,
         "agent_notice": agent_notice or (
             assistant_text if status not in {"ANSWER", "CLARIFY"} else None
         ),
