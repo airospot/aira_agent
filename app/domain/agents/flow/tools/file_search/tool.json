@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "native.flow.tool.file_search.v1",
+  "name": "file_search",
+  "description": "Search text file contents under the agent corpus for a query string. Does not match filenames. Returns matching paths and line snippets. Use file_name_search to find files by name; use file_read when the path is known.",
+  "arguments": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "native.flow.tool.file_search.arguments.v1",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["query"],
+    "properties": {
+      "query": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Case-insensitive substring to find inside corpus text files."
+      },
+      "glob": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Optional filename glob relative to corpus (e.g. **/*.md)."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "description": "Max match hits to return (default 20)."
+      }
+    }
+  }
+}

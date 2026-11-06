@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aira.knowledge.model_decision.v1",
+  "title": "Aira Knowledge Model Decision v1",
+  "type": "object",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["action", "answer"],
+      "properties": {
+        "action": { "const": "ANSWER" },
+        "answer": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["action", "tool", "arguments"],
+      "properties": {
+        "action": { "const": "CALL_TOOL" },
+        "tool": { "type": "string", "minLength": 1 },
+        "arguments": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["action", "question"],
+      "properties": {
+        "action": { "const": "CLARIFY" },
+        "question": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["action", "reason"],
+      "properties": {
+        "action": { "const": "STOP_INCOMPLETE" },
+        "reason": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

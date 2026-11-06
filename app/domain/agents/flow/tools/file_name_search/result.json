@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "native.flow.tool.file_name_search.result.v1",
+  "title": "file_name_search result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "query", "matched_total", "returned_count", "truncated", "candidates", "error"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["ok", "invalid_argument", "error"]
+    },
+    "query": { "type": "string" },
+    "matched_total": { "type": "integer", "minimum": 0 },
+    "returned_count": { "type": "integer", "minimum": 0 },
+    "truncated": { "type": "boolean" },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "name", "byte_size"],
+        "properties": {
+          "path": { "type": "string" },
+          "name": { "type": "string" },
+          "byte_size": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "error": { "type": ["string", "null"] }
+  }
+}

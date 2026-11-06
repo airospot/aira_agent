@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "native.flow.tool.show_image.result.v1",
+  "title": "show_image result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "path", "display_url", "mime", "byte_size", "error"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["ok", "not_found", "invalid_path", "not_image", "too_large", "error"]
+    },
+    "path": { "type": ["string", "null"] },
+    "display_url": { "type": ["string", "null"] },
+    "mime": { "type": ["string", "null"] },
+    "byte_size": { "type": ["integer", "null"], "minimum": 0 },
+    "error": { "type": ["string", "null"] }
+  }
+}

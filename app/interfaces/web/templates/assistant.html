@@ -1,0 +1,209 @@
+{% extends "agent_chat_layout.html" %}
+{% block body_class %}agent-assistant-page{% endblock %}
+{% block ak_body %}
+<section class="agent-chat agent-workspace" data-agent-workspace>
+  <header class="agent-workspace-topbar">
+    <div class="agent-workspace-topbar-main">
+      <h1 class="agent-workspace-title">Agent</h1>
+      <p class="muted agent-workspace-subtitle">Native agent — oturum belleği ve Flow denetimi</p>
+    </div>
+    <div class="agent-workspace-topbar-actions">
+      <button type="button" class="button ghost sm agent-drawer-toggle" data-agent-toggle="sidebar" aria-controls="agent-sidebar" aria-expanded="false">Konuşmalar</button>
+      <button type="button" class="button ghost sm agent-drawer-toggle" data-agent-toggle="inspector" aria-controls="agent-inspector" aria-expanded="false">Flow</button>
+      <a class="button sm" href="{{ url_for('agent.assistant', new=1) }}">Yeni konuşma</a>
+    </div>
+  </header>
+
+  {% if memory_error %}
+  <p class="agent-chat-notice muted" role="status">{{ memory_error }}</p>
+  {% endif %}
+
+  <div class="agent-workspace-backdrop" data-agent-backdrop hidden></div>
+
+  <div class="agent-chat-layout agent-workspace-layout">
+    <aside id="agent-sidebar" class="agent-chat-history agent-workspace-sidebar" aria-label="Önceki konuşmalar">
+      <div class="agent-workspace-sidebar-head">
+        <h2 class="agent-chat-history-title">Konuşmalar</h2>
+        <a class="button ghost sm" href="{{ url_for('agent.assistant', new=1) }}">Yeni</a>
+      </div>
+      <ul class="agent-chat-history-list"
+          data-history-next="{{ (past_conversations or [])|length }}"
+          data-history-max="{{ history_max or 50 }}"
+          data-history-page="{{ history_page_size or 15 }}"
+          data-history-done="{{ '0' if history_has_more else '1' }}"
+          data-history-url="{{ url_for('agent.assistant_conversations') }}"
+          data-active-session="{{ session_id or '' }}">
+        {% for item in past_conversations or [] %}
+        <li>
+          <a href="{{ url_for('agent.assistant', session_id=item.session_id) }}"
+             class="{{ 'active' if session_id and item.session_id == session_id else '' }}"
+             title="{{ item.title }}">
+            <span class="agent-history-title">{{ item.title }}</span>
+            {% if item.last_message_at %}
+            <span class="agent-history-meta muted">{{ item.last_message_at }}</span>
+            {% endif %}
+          </a>
+        </li>
+        {% else %}
+        <li class="muted agent-history-empty">Henüz kayıt yok</li>
+        {% endfor %}
+      </ul>
+    </aside>
+
+    <div class="agent-chat-panel agent-workspace-main">
+      <div class="agent-chat-thread" aria-live="polite">
+        {% if conversation_turns %}
+          {% for turn in conversation_turns %}
+          <div class="agent-chat-row agent-chat-row-{{ turn.role }}{% if selected_turn_id and turn.memory_id == selected_turn_id %} agent-chat-row-selected{% endif %}">
+            {% if turn.role == 'assistant' and turn.has_flow_trace and session_id and turn.memory_id %}
+            {# Selectable div (not <a>) so Markdown hyperlinks do not nest inside turn navigation. #}
+            <div class="agent-chat-bubble agent-chat-bubble-assistant agent-chat-bubble-selectable"
+                 tabindex="0"
+                 role="link"
+                 data-agent-turn-href="{{ url_for('agent.assistant', session_id=session_id, turn_id=turn.memory_id) }}"
+                 aria-current="{{ 'true' if selected_turn_id and turn.memory_id == selected_turn_id else 'false' }}"
+                 aria-label="Bu yanıta ait Flow izini göster">
+              <div class="assistant-prose agent-md">{{ turn.content | safe_markdown }}</div>
+            </div>
+            {% elif turn.role == 'assistant' %}
+            <div class="agent-chat-bubble agent-chat-bubble-assistant">
+              <div class="assistant-prose agent-md">{{ turn.content | safe_markdown }}</div>
+            </div>
+            {% else %}
+            <div class="agent-chat-bubble agent-chat-bubble-{{ turn.role }}">{{ turn.content }}</div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        {% elif request_text or agent_reply or agent_notice %}
+          {% if request_text %}
+          <div class="agent-chat-row agent-chat-row-user">
+            <div class="agent-chat-bubble agent-chat-bubble-user">{{ request_text }}</div>
+          </div>
+          {% endif %}
+          {% if agent_reply %}
+          <div class="agent-chat-row agent-chat-row-assistant">
+            <div class="agent-chat-bubble agent-chat-bubble-assistant">
+              <div class="assistant-prose agent-md">{{ agent_reply | safe_markdown }}</div>
+            </div>
+          </div>
+          {% endif %}
+          {% if agent_notice %}
+          <div class="agent-chat-row agent-chat-row-assistant">
+            <p class="agent-chat-notice muted">{{ agent_notice }}</p>
+          </div>
+          {% endif %}
+        {% else %}
+          <div class="agent-chat-empty">
+            <p class="muted">Yerel corpus hakkında sorun. Aynı oturumda önceki mesajlar korunur; yeni konuşma geçmişi taşımaz.</p>
+          </div>
+        {% endif %}
+      </div>
+
+      <form method="post" action="{{ url_for('agent.assistant_propose') }}" id="ai-propose-form" class="agent-chat-composer">
+        {% if session_id %}
+        <input type="hidden" name="session_id" value="{{ session_id }}">
+        {% endif %}
+        <input type="hidden" name="submission_id" value="{{ submission_id }}">
+        <label class="sr-only" for="ai-request-text">Ne sormak istiyorsunuz?</label>
+        <textarea
+          name="request_text"
+          id="ai-request-text"
+          rows="2"
+          class="sql-editor assistant-textarea agent-chat-input"
+          required
+          placeholder="Örn. VPN zorunlu mu? file_search ne işe yarar?"
+          autocomplete="off"
+          spellcheck="true"
+        ></textarea>
+        <label class="button ghost agent-attach-btn" for="agent-corpus-file" title="Corpus'a dosya yükle">
+          <span aria-hidden="true">📎</span>
+          <span class="sr-only">Dosya ekle</span>
+        </label>
+        <input
+          type="file"
+          id="agent-corpus-file"
+          class="agent-attach-input"
+          accept=".txt,.md,.json,.jsonl,.yaml,.yml,.csv,.log,.xml,.html,.css,.js,.ts,.py,.toml,.ini,.cfg,.rst,.pdf,.docx,.pptx"
+          data-upload-url="{{ url_for('agent.document_upload') }}"
+        >
+        <button class="button" type="submit" id="ai-submit-btn">Sor</button>
+      </form>
+      <p id="agent-upload-status" class="agent-upload-status muted" hidden aria-live="polite"></p>
+
+      <p
+        id="agent-flow-status"
+        class="agent-flow-status muted"
+        hidden
+        data-agent-flow-status
+        data-flow-phase="waiting"
+        aria-live="polite"
+      >
+        <span class="spinner-inline" aria-hidden="true"></span>
+        <span data-flow-label>agent yanıt hazırlıyor…</span>
+        <span data-flow-elapsed></span>
+      </p>
+    </div>
+
+    <aside id="agent-inspector" class="agent-flow-inspector" aria-label="agent Flow Inspector">
+      <div class="agent-inspector-head">
+        <h2 class="agent-inspector-title">agent Flow</h2>
+        {% if selected_turn_id %}
+        <span class="muted agent-inspector-turn">Turn #{{ selected_turn_id }}</span>
+        {% endif %}
+      </div>
+
+      {% if flow_timeline %}
+      <div class="agent-inspector-summary">
+        <span>{{ flow_timeline|length }} olay</span>
+      </div>
+      <ol class="agent-flow-timeline-list">
+        {% for row in flow_timeline %}
+        <li class="agent-flow-timeline-item agent-flow-tone-{{ row.tone }}">
+          <div class="agent-flow-timeline-main">
+            <span class="agent-flow-timeline-label">{{ row.title }}</span>
+            {% if row.detail %}
+            <span class="agent-flow-timeline-detail">{{ row.detail }}</span>
+            {% endif %}
+            {% if row.tool %}
+            <span class="agent-flow-timeline-detail">tool: {{ row.tool }}</span>
+            {% endif %}
+            {% if row.status %}
+            <span class="agent-flow-timeline-detail">status: {{ row.status }}</span>
+            {% endif %}
+          </div>
+          <div class="agent-flow-timeline-meta">
+            {% if row.step is defined and row.step is not none %}
+            <span class="agent-flow-timeline-step">Adım {{ row.step }}</span>
+            {% endif %}
+            {% if row.duration_ms is defined and row.duration_ms is not none %}
+            <span class="agent-flow-timeline-duration">{{ row.duration_ms }} ms</span>
+            {% endif %}
+          </div>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <div class="agent-inspector-empty muted">
+        {% if conversation_turns %}
+          Bir asistan yanıtını seçerek o turn’e ait Flow olaylarını görüntüleyin.
+        {% else %}
+          Yeni konuşmada henüz Flow olayı yok. Soru gönderildiğinde burada görünür.
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if decision_trace %}
+      <details class="agent-decision-trace" open>
+        <summary>Decision Trace</summary>
+        <p class="muted agent-decision-trace-help">Sanitize edilmiş araç/karar izi. Kullanıcı sorusu ve nihai cevap metni dahil değildir.</p>
+        <button type="button" class="button ghost sm" id="agent-decision-trace-copy">Kopyala</button>
+        <pre id="agent-decision-trace-json" class="agent-decision-trace-json">{{ decision_trace | tojson(indent=2) }}</pre>
+      </details>
+      {% endif %}
+    </aside>
+  </div>
+</section>
+{% endblock %}
+{% block ak_scripts %}
+<script src="{{ url_for('agent_static', filename='js/assistant.js') }}"></script>
+{% endblock %}

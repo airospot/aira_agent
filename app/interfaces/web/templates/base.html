@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Native Knowledge Flow{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('agent_static', filename='css/app.css') }}">
+  {% block extra_css %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <aside class="sidebar">
+    <div class="brand">Native Knowledge Flow</div>
+    <nav>
+      <div class="nav-section">Çalış</div>
+      <a href="{{ url_for('agent.home') }}"
+         {% if request.endpoint == 'agent.home' %}aria-current="page"{% endif %}>
+        Ana Sayfa
+      </a>
+      <a href="{{ url_for('agent.assistant') }}"
+         {% if request.endpoint == 'agent.assistant' %}aria-current="page"{% endif %}>
+        Asistan
+      </a>
+    </nav>
+  </aside>
+  <main class="main main-content">
+    <div class="page-content-wrapper">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="flash-stack">
+            {% for category, message in messages %}
+              <p class="flash flash-{{ category }}">{{ message }}</p>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

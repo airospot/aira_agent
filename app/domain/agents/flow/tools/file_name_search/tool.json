@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "native.flow.tool.file_name_search.v1",
+  "name": "file_name_search",
+  "description": "Find corpus files by name or relative path substring (and optional glob). Does not search file contents. Use when looking for a document by filename; then call file_read with the returned path. For text inside files use file_search.",
+  "arguments": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "native.flow.tool.file_name_search.arguments.v1",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["query"],
+    "properties": {
+      "query": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Case-insensitive substring matched against file names / relative paths (e.g. SCORING_GUIDE or .md)."
+      },
+      "glob": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Optional filename glob relative to corpus (e.g. **/*.md)."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "description": "Max paths to return (default 20)."
+      }
+    }
+  }
+}

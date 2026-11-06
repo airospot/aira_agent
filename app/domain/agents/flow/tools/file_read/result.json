@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "native.flow.tool.file_read.result.v1",
+  "title": "file_read result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "path", "content", "truncated", "byte_size", "error"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["ok", "not_found", "invalid_path", "not_text", "error"]
+    },
+    "path": { "type": ["string", "null"] },
+    "content": { "type": ["string", "null"] },
+    "truncated": { "type": "boolean" },
+    "byte_size": { "type": ["integer", "null"], "minimum": 0 },
+    "error": { "type": ["string", "null"] }
+  }
+}

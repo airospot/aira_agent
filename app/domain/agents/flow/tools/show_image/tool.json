@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "native.flow.tool.show_image.v1",
+  "name": "show_image",
+  "description": "Validate a corpus image path and return a display_url for embedding in the answer as Markdown ![alt](display_url). Use when the user asks to see a figure/table image, or when an extracted_data/.../images/img_*.png path is known from content.md / meta. Do not invent paths or URLs.",
+  "arguments": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "native.flow.tool.show_image.arguments.v1",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["path"],
+    "properties": {
+      "path": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Corpus-relative image path (e.g. extracted_data/02_embedded_image_table/images/img_001.png)."
+      }
+    }
+  }
+}

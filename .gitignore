@@ -1,0 +1,33 @@
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# Local data & corpus (including extracted OCR/images)
+/data/
+data/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs / runtime
+*.log
+*.pid
+.cache/

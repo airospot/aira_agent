@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "native.flow.tool.file_read.v1",
+  "name": "file_read",
+  "description": "Read a text file from the agent corpus by relative path. Use after file_search or when the user names a file. Does not write or delete.",
+  "arguments": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "native.flow.tool.file_read.arguments.v1",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["path"],
+    "properties": {
+      "path": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Corpus-relative path (e.g. README.md or docs/guide.md)."
+      }
+    }
+  }
+}
