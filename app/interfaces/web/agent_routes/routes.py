@@ -186,6 +186,50 @@ def _overlay_submission_reply(turns: list, *, agent_reply: str | None) -> list:
     return out
 
 
+def _submission_bound_session_id(row: Mapping[str, Any] | None) -> str | None:
+    if not row:
+        return None
+    direct = str(row.get("session_id") or "").strip() or None
+    if direct:
+        return direct
+    payload = _parse_submission_result(row.get("result_json"))
+    return str(payload.get("session_id") or "").strip() or None
+
+
+def _submission_display_if_session_matches(
+    row: Mapping[str, Any] | None, *, selected_session_id: str | None
+) -> dict[str, Any]:
+    """Overlay submission UI only when it belongs to the selected conversation."""
+    if not row or not selected_session_id:
+        return {}
+    bound = _submission_bound_session_id(row)
+    if not bound or bound != str(selected_session_id).strip():
+        return {}
+    status_row = str(row.get("status") or "")
+    if status_row == "completed":
+        return _display_from_submission_payload(
+            _parse_submission_result(row.get("result_json"))
+        )
+    if status_row == "processing":
+        return {
+            "session_id": bound,
+            "agent_notice": (
+                "Bu gönderim hâlâ işleniyor. Lütfen bekleyin; "
+                "otomatik yeniden çalıştırma yapılmaz."
+            ),
+        }
+    if status_row == "failed":
+        return {
+            "session_id": bound,
+            "agent_notice": (
+                "Önceki gönderim zaman aşımına uğradı veya başarısız oldu. "
+                "Yeniden denemek için yeni bir soru gönderin (yeni submission_id)."
+            ),
+            "memory_error": row.get("error"),
+        }
+    return {}
+
+
 def _render_assistant(
     *,
     request_text: str = "",
@@ -262,49 +306,29 @@ def assistant():
     agent_notice = None
     new_conversation = (request.args.get("new") or "").strip() in {"1", "true", "yes"}
     requested_turn = (request.args.get("turn_id") or "").strip() or None
-    requested_submission = (request.args.get("submission_id") or "").strip() or None
+    # new=1 must not carry a previous submission answer into a fresh conversation.
+    requested_submission = None
+    if not new_conversation:
+        requested_submission = (request.args.get("submission_id") or "").strip() or None
 
     if new_conversation:
         clear_last_ui(session)
 
-    # Full answers come from tenant-scoped agent_submissions, never the cookie.
-    submission_display: dict[str, Any] = {}
+    submission_row = None
     if customer_id and user_id and requested_submission:
-        row = submissions.get_submission(
+        submission_row = submissions.get_submission(
             customer_id=customer_id,
             user_id=user_id,
             submission_id=requested_submission,
         )
-        if row:
-            status_row = str(row.get("status") or "")
-            if status_row == "completed":
-                submission_display = _display_from_submission_payload(
-                    _parse_submission_result(row.get("result_json"))
-                )
-            elif status_row == "processing":
-                submission_display = {
-                    "session_id": row.get("session_id"),
-                    "agent_notice": (
-                        "Bu gönderim hâlâ işleniyor. Lütfen bekleyin; "
-                        "otomatik yeniden çalıştırma yapılmaz."
-                    ),
-                }
-            elif status_row == "failed":
-                submission_display = {
-                    "session_id": row.get("session_id"),
-                    "agent_notice": (
-                        "Önceki gönderim zaman aşımına uğradı veya başarısız oldu. "
-                        "Yeniden denemek için yeni bir soru gönderin (yeni submission_id)."
-                    ),
-                    "memory_error": row.get("error"),
-                }
 
     if customer_id and user_id:
         try:
-            # Prefer session bound to the completed submission when present.
-            requested_session = request.args.get("session_id") or submission_display.get(
-                "session_id"
-            )
+            # Resolve the selected conversation first; only then overlay a matching
+            # submission (never attach conversation A's answer onto B).
+            requested_session = request.args.get("session_id")
+            if not requested_session and submission_row is not None:
+                requested_session = str(submission_row.get("session_id") or "").strip() or None
             session_id = resolve_session_id(
                 requested_session_id=requested_session,
                 new_conversation=new_conversation,
@@ -322,6 +346,9 @@ def assistant():
                 offset=0,
             )
             last_ui = pop_last_ui_for_session(session, session_id) or {}
+            submission_display = _submission_display_if_session_matches(
+                submission_row, selected_session_id=session_id
+            )
             if submission_display.get("memory_error"):
                 memory_error = submission_display.get("memory_error")
             elif last_ui.get("memory_error") and not memory_error:
@@ -349,22 +376,12 @@ def assistant():
         except SessionIdentityError as exc:
             memory_error = f"Konuşma kimliği reddedildi ({exc.code})."
             session_id = None
-            agent_reply = submission_display.get("agent_reply")
-            agent_notice = submission_display.get("agent_notice")
-            if submission_display.get("memory_error"):
-                memory_error = submission_display.get("memory_error")
         except MemoryReadError:
             current_app.logger.exception("agent_memory_load_failed")
             memory_error = "Konuşma belleği okunamadı. Başka oturuma düşülmedi."
-            agent_reply = submission_display.get("agent_reply")
-            agent_notice = submission_display.get("agent_notice")
-            if submission_display.get("memory_error"):
-                memory_error = submission_display.get("memory_error")
         except Exception:
             current_app.logger.exception("agent_memory_load_failed")
             memory_error = "Konuşma belleği okunamadı. Başka oturuma düşülmedi."
-            agent_reply = submission_display.get("agent_reply")
-            agent_notice = submission_display.get("agent_notice")
     else:
         last_ui = pop_last_ui_for_session(session, None) or {}
         if last_ui.get("memory_error") and not memory_error:
@@ -444,6 +461,7 @@ def assistant_propose():
         "true",
         "yes",
     }
+    explicit_session_id = str(request.form.get("session_id") or "").strip() or None
     # Same submission retry must not remint session (new_conversation / empty start).
     prior_submission = submissions.get_submission(
         customer_id=customer_id,
@@ -453,6 +471,26 @@ def assistant_propose():
     prior_session_id = None
     if prior_submission is not None:
         prior_session_id = str(prior_submission.get("session_id") or "").strip() or None
+
+    # Reject explicit session that disagrees with an existing reservation.
+    if (
+        prior_session_id
+        and explicit_session_id
+        and explicit_session_id != prior_session_id
+    ):
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": "submission_session_mismatch",
+                    "message": (
+                        "Bu submission başka bir konuşmaya bağlı. "
+                        "Aynı submission_id ile farklı session_id kullanılamaz."
+                    ),
+                }
+            ),
+            400,
+        )
 
     try:
         if prior_session_id:
@@ -465,7 +503,7 @@ def assistant_propose():
             )
         else:
             session_id = resolve_session_id(
-                requested_session_id=request.form.get("session_id"),
+                requested_session_id=explicit_session_id,
                 new_conversation=new_conversation,
                 customer_id=customer_id,
                 user_id=user_id,
@@ -535,13 +573,11 @@ def assistant_propose():
             session_id=session_id, submission_id=submission_id
         )
 
-    # Hash uses the reserved session when replaying so new_conversation remints
-    # and empty-session retries stay stable against the real resolver.
-    hash_session_id = prior_session_id or session_id
-    request_hash = submissions.hash_request(
+    # Unscoped hash for new/empty starts so concurrent first lookups share one key.
+    request_hash = submissions.hash_for_reservation(
         request_text=request_text,
-        session_id=hash_session_id,
         new_conversation=new_conversation,
+        explicit_session_id=explicit_session_id,
     )
     timeout_seconds = int(
         current_app.config.get("AGENT_SUBMISSION_TIMEOUT_SECONDS")
@@ -576,7 +612,34 @@ def assistant_propose():
                 session_id=session_id, submission_id=submission_id
             )
 
-        if str(existing.get("request_hash") or "") != request_hash:
+        canonical_session_id = (
+            str(existing.get("session_id") or "").strip() or None
+        )
+        if (
+            explicit_session_id
+            and canonical_session_id
+            and explicit_session_id != canonical_session_id
+        ):
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": "submission_session_mismatch",
+                        "message": (
+                            "Bu submission başka bir konuşmaya bağlı. "
+                            "Aynı submission_id ile farklı session_id kullanılamaz."
+                        ),
+                    }
+                ),
+                400,
+            )
+
+        if not submissions.hash_matches_stored(
+            stored_hash=existing.get("request_hash"),
+            request_text=request_text,
+            new_conversation=new_conversation,
+            canonical_session_id=canonical_session_id,
+        ):
             return (
                 jsonify(
                     {
@@ -590,6 +653,19 @@ def assistant_propose():
                 ),
                 400,
             )
+
+        # Rebind to the winner's canonical session (race / empty / new_conversation).
+        if canonical_session_id and canonical_session_id != session_id:
+            try:
+                session_id = resolve_session_id(
+                    requested_session_id=canonical_session_id,
+                    new_conversation=False,
+                    customer_id=customer_id,
+                    user_id=user_id,
+                    flask_session=session,
+                )
+            except (SessionIdentityError, MemoryReadError, Exception):
+                session_id = canonical_session_id
 
         status_existing = str(existing.get("status") or "")
         if status_existing == "completed":
