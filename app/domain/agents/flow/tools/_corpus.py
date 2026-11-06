@@ -48,12 +48,25 @@ def resolve_under_corpus(root: Path, relative: str) -> Path | None:
     rel = str(relative or "").strip().lstrip("/")
     if not rel or rel.startswith("~") or ".." in Path(rel).parts:
         return None
-    candidate = (root / rel).resolve()
-    try:
-        candidate.relative_to(root)
-    except ValueError:
+    candidate = root / rel
+    if not is_resolved_under_corpus(root, candidate):
         return None
-    return candidate
+    return candidate.resolve()
+
+
+def is_resolved_under_corpus(root: Path, path: Path) -> bool:
+    """True if ``path`` resolves to a real location inside ``root``.
+
+    Catches ValueError (outside root), OSError (broken link / IO), and
+    RuntimeError (symlink loops from Path.resolve). Not TOCTOU-safe.
+    """
+    try:
+        resolved_root = root.resolve(strict=True)
+        resolved = path.resolve(strict=True)
+        resolved.relative_to(resolved_root)
+        return True
+    except (ValueError, OSError, RuntimeError):
+        return False
 
 
 def is_probably_text(path: Path) -> bool:

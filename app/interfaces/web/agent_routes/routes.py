@@ -7,6 +7,7 @@ Memory policy/SQL lives in ``flow/memory`` + AiraCoder memory_service.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -22,6 +23,8 @@ from flask import (
     url_for,
 )
 
+from app.adapters.db.agents.models.base import db
+from app.adapters.db.agents.repositories import submission_repository as submissions
 from app.core.security import require_tenant, role_required
 from app.domain.agents.flow.memory import (
     AGENT_PAGE_TYPE,
@@ -40,7 +43,6 @@ from app.domain.agents.flow.execution.run_knowledge_agent import (
 )
 from app.interfaces.web.agent_routes.submission_store import (
     clear_last_ui,
-    get_completed_submission,
     mint_submission_id,
     pop_last_ui_for_session,
     remember_submission,
@@ -309,21 +311,10 @@ def assistant_conversations():
 @require_tenant
 @role_required(["Admin", "Super Admin"])
 def assistant_propose():
-    """Run agent at most once per submission_id, persist, 303 redirect to GET."""
+    """Run agent at most once per scoped submission; persist; 303 → GET."""
     request_text = (request.form.get("request_text") or "").strip()
     submission_id = (request.form.get("submission_id") or "").strip() or mint_submission_id()
     customer_id, user_id = _tenant_ids()
-
-    # Idempotent replay: never re-run agent / tools / persist.
-    prior = get_completed_submission(session, submission_id)
-    if prior is not None:
-        current_app.logger.info(
-            "agent_propose_idempotent_hit submission_id=%s session_id=%s",
-            submission_id,
-            prior.get("session_id"),
-        )
-        remember_submission(session, submission_id=submission_id, payload=prior)
-        return _redirect_assistant(session_id=prior.get("session_id"))
 
     if not customer_id or not user_id:
         payload = {
@@ -337,12 +328,12 @@ def assistant_propose():
 
     memory_error = None
     past: list = []
+    new_conversation = (request.form.get("new_conversation") or "").strip() in {
+        "1",
+        "true",
+        "yes",
+    }
     try:
-        new_conversation = (request.form.get("new_conversation") or "").strip() in {
-            "1",
-            "true",
-            "yes",
-        }
         session_id = resolve_session_id(
             requested_session_id=request.form.get("session_id"),
             new_conversation=new_conversation,
@@ -408,17 +399,135 @@ def assistant_propose():
         remember_submission(session, submission_id=submission_id, payload=payload)
         return _redirect_assistant(session_id=session_id)
 
+    request_hash = submissions.hash_request(
+        request_text=request_text,
+        session_id=session_id,
+        new_conversation=new_conversation,
+    )
+    timeout_seconds = int(
+        current_app.config.get("AGENT_SUBMISSION_TIMEOUT_SECONDS")
+        or submissions.DEFAULT_PROCESSING_TIMEOUT_SECONDS
+    )
+
+    owned = submissions.try_begin_processing(
+        customer_id=customer_id,
+        user_id=user_id,
+        submission_id=submission_id,
+        session_id=session_id,
+        request_hash=request_hash,
+    )
+    # Commit reservation before any LLM work so concurrent retries see the row.
+    db.session.commit()
+
+    if not owned:
+        existing = submissions.get_submission(
+            customer_id=customer_id,
+            user_id=user_id,
+            submission_id=submission_id,
+        )
+        if existing is None:
+            payload = {
+                "session_id": session_id,
+                "agent_notice": "Gönderim rezervasyonu okunamadı; lütfen yeni soru gönderin.",
+                "replayed": False,
+            }
+            remember_submission(session, submission_id=submission_id, payload=payload)
+            return _redirect_assistant(session_id=session_id)
+
+        if str(existing.get("request_hash") or "") != request_hash:
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": "submission_scope_mismatch",
+                        "message": (
+                            "Aynı submission_id farklı soru/konuşma ile yeniden "
+                            "kullanılamaz. Yeni gönderim kimliği kullanın."
+                        ),
+                    }
+                ),
+                400,
+            )
+
+        status_existing = str(existing.get("status") or "")
+        if status_existing == "completed":
+            prior = existing.get("result_json") or {}
+            if isinstance(prior, str):
+                try:
+                    prior = json.loads(prior)
+                except Exception:  # noqa: BLE001
+                    prior = {}
+            if not isinstance(prior, dict):
+                prior = {}
+            prior = dict(prior)
+            prior["replayed"] = True
+            current_app.logger.info(
+                "agent_propose_idempotent_hit submission_id=%s session_id=%s",
+                submission_id,
+                prior.get("session_id") or existing.get("session_id"),
+            )
+            remember_submission(session, submission_id=submission_id, payload=prior)
+            return _redirect_assistant(
+                session_id=prior.get("session_id") or existing.get("session_id"),
+                turn_id=prior.get("assistant_memory_id"),
+            )
+
+        if status_existing == "processing" and not submissions.is_processing_timed_out(
+            existing, timeout_seconds=timeout_seconds
+        ):
+            payload = {
+                "session_id": session_id,
+                "agent_notice": (
+                    "Bu gönderim hâlâ işleniyor. Lütfen bekleyin; "
+                    "otomatik yeniden çalıştırma yapılmaz."
+                ),
+                "replayed": True,
+            }
+            remember_submission(session, submission_id=submission_id, payload=payload)
+            return _redirect_assistant(session_id=session_id)
+
+        # timed-out processing or failed — no auto-rerun
+        payload = {
+            "session_id": session_id,
+            "agent_notice": (
+                "Önceki gönderim zaman aşımına uğradı veya başarısız oldu. "
+                "Yeniden denemek için yeni bir soru gönderin (yeni submission_id)."
+            ),
+            "memory_error": existing.get("error"),
+            "replayed": True,
+        }
+        remember_submission(session, submission_id=submission_id, payload=payload)
+        return _redirect_assistant(session_id=session_id)
+
     flow_events: list[dict] = []
 
     def on_event(payload_event):
         flow_events.append(sanitize_flow_event(payload_event))
 
-    result = run_knowledge_agent(
-        request_text,
-        conversation=conversation,
-        config=current_app.config,
-        on_event=on_event,
-    )
+    try:
+        result = run_knowledge_agent(
+            request_text,
+            conversation=conversation,
+            config=current_app.config,
+            on_event=on_event,
+        )
+    except Exception as exc:  # noqa: BLE001
+        current_app.logger.exception("agent_flow_crashed")
+        submissions.mark_failed(
+            customer_id=customer_id,
+            user_id=user_id,
+            submission_id=submission_id,
+            error=type(exc).__name__,
+        )
+        db.session.commit()
+        payload = {
+            "session_id": session_id,
+            "agent_notice": f"Agent error: {type(exc).__name__}",
+            "replayed": False,
+        }
+        remember_submission(session, submission_id=submission_id, payload=payload)
+        return _redirect_assistant(session_id=session_id)
+
     agent_reply = None
     agent_notice = None
     status = result.get("status")
@@ -468,7 +577,6 @@ def assistant_propose():
             metadata={
                 "flow_status": status,
                 "submission_id": submission_id,
-                # Durable turn association — GET restores from these fields.
                 "flow_timeline": flow_timeline,
                 "decision_trace": decision_trace,
             },
@@ -488,7 +596,6 @@ def assistant_propose():
         current_app.logger.exception("agent_memory_persist_failed")
         memory_error = "Yanıt üretildi ancak bellek yazılamadı."
 
-    # Thin cookie pointer only (timeline lives on assistant metadata).
     payload = {
         "session_id": session_id,
         "submission_id": submission_id,
@@ -502,6 +609,13 @@ def assistant_propose():
         "replayed": False,
         "past_count": len(past),
     }
+    submissions.mark_completed(
+        customer_id=customer_id,
+        user_id=user_id,
+        submission_id=submission_id,
+        result_payload=payload,
+    )
+    db.session.commit()
     remember_submission(session, submission_id=submission_id, payload=payload)
     return _redirect_assistant(
         session_id=session_id,

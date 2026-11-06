@@ -10,6 +10,7 @@ from jsonschema import Draft202012Validator
 
 from app.domain.agents.flow.tools._corpus import (
     is_probably_text,
+    is_resolved_under_corpus,
     resolve_corpus_root,
 )
 
@@ -68,13 +69,14 @@ def _search_names(
         }
 
     for path in paths:
+        if not is_resolved_under_corpus(root, path):
+            continue
         try:
-            path.relative_to(root)
+            rel = str(path.relative_to(root))
         except ValueError:
             continue
         if not is_probably_text(path):
             continue
-        rel = str(path.relative_to(root))
         if needle not in rel.lower() and needle not in path.name.lower():
             continue
         try:

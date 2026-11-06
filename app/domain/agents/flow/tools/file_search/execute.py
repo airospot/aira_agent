@@ -10,6 +10,7 @@ from jsonschema import Draft202012Validator
 
 from app.domain.agents.flow.tools._corpus import (
     is_probably_text,
+    is_resolved_under_corpus,
     resolve_corpus_root,
 )
 
@@ -65,11 +66,16 @@ def _search(arguments: Mapping[str, Any], *, config: Mapping[str, Any] | None) -
         }
 
     for path in paths:
+        if not is_resolved_under_corpus(root, path):
+            continue
         try:
-            path.relative_to(root)
+            rel = str(path.relative_to(root))
         except ValueError:
             continue
-        if path.stat().st_size > _MAX_FILE_BYTES:
+        try:
+            if path.stat().st_size > _MAX_FILE_BYTES:
+                continue
+        except OSError:
             continue
         if not is_probably_text(path):
             continue
@@ -77,7 +83,6 @@ def _search(arguments: Mapping[str, Any], *, config: Mapping[str, Any] | None) -
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        rel = str(path.relative_to(root))
         for idx, line in enumerate(text.splitlines(), start=1):
             if needle not in line.lower():
                 continue

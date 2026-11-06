@@ -413,10 +413,20 @@ def _external_current_url() -> str:
 
 
 def _login_redirect_url(return_url: str) -> str:
-    """Central login UI URL with return_url parameter."""
+    """Central login UI URL with return_url parameter.
+
+    LOGIN_UI_URL is required when auth is enabled — provider login path is not assumed.
+    """
     from urllib.parse import quote
-    login_ui_url = current_app.config.get('LOGIN_UI_URL', 'https://airaintelligence.ai/platform/airacoder')
-    return f"{login_ui_url}?return_url={quote(return_url, safe='')}"
+
+    login_ui_url = str(current_app.config.get("LOGIN_UI_URL") or "").strip()
+    if not login_ui_url:
+        raise RuntimeError(
+            "LOGIN_UI_URL gerekli (auth açık). Provider giriş yolu varsayılmaz; "
+            ".env içinde gerçek login URL'sini ayarlayın."
+        )
+    sep = "&" if "?" in login_ui_url else "?"
+    return f"{login_ui_url}{sep}return_url={quote(return_url, safe='')}"
 
 
 def _role_from_payload(payload: dict) -> str:

@@ -31,12 +31,39 @@ _ENV_OVERLAY = (
     "AUTH_DISABLED",
     "AUTH_BYPASS_USER_ID",
     "AUTH_BYPASS_CUSTOMER_ID",
+    "LOGIN_UI_URL",
     "KNOWLEDGE_FLOW_LLM_BASE_URL",
     "KNOWLEDGE_FLOW_LLM_MODEL",
     "KNOWLEDGE_FLOW_LLM_API_KEY",
     "KNOWLEDGE_FLOW_LLM_TIMEOUT_SECONDS",
     "AGENT_CORPUS_DIR",
+    "AGENT_SUBMISSION_TIMEOUT_SECONDS",
 )
+
+_SECRET_KEY_PLACEHOLDERS = frozenset(
+    {
+        "replace-with-a-long-random-string",
+        "dev-runtime-governance",
+        "changeme",
+        "change-me",
+        "secret",
+        "your-secret-key",
+    }
+)
+
+
+def _require_secret_key(raw: object) -> str:
+    if raw is None:
+        raise SystemExit("SECRET_KEY gerekli.")
+    value = str(raw).strip()
+    if not value:
+        raise SystemExit("SECRET_KEY gerekli (boş/whitespace kabul edilmez).")
+    if value.lower() in _SECRET_KEY_PLACEHOLDERS:
+        raise SystemExit(
+            f"SECRET_KEY placeholder kabul edilmez: {value!r}. "
+            "Uzun rastgele bir değer kullanın."
+        )
+    return value
 
 
 def _psycopg2_uri(url: str) -> str:
@@ -92,8 +119,16 @@ def create_app() -> Flask:
         )
     app.config["SQLALCHEMY_DATABASE_URI"] = _psycopg2_uri(database_url)
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    if not str(app.config.get("SECRET_KEY") or "").strip():
-        raise SystemExit("SECRET_KEY gerekli.")
+    app.config["SECRET_KEY"] = _require_secret_key(app.config.get("SECRET_KEY"))
+
+    auth_disabled_raw = str(app.config.get("AUTH_DISABLED") or "").strip().lower()
+    auth_disabled = auth_disabled_raw in {"1", "true", "yes", "on"}
+    if not auth_disabled and not str(app.config.get("LOGIN_UI_URL") or "").strip():
+        raise SystemExit(
+            "LOGIN_UI_URL gerekli (AUTH_DISABLED kapalı). "
+            "Provider giriş yolu varsayılmaz; gerçek login URL'sini ayarlayın. "
+            "Yerel geliştirme için AUTH_DISABLED=1 kullanın."
+        )
 
     db.init_app(app)
 

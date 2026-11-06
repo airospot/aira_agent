@@ -23,5 +23,10 @@ def build_app_config() -> dict[str, Any]:
             "KNOWLEDGE_FLOW_LLM_TIMEOUT_SECONDS", "120"
         ),
         "APP_USER_NAME": None,
-        "SECRET_KEY": "dev-runtime-governance",
+        # Must come from environment / overlay — no hardcoded secret.
+        "SECRET_KEY": os.environ.get("SECRET_KEY"),
+        "LOGIN_UI_URL": os.environ.get("LOGIN_UI_URL"),
+        "AGENT_SUBMISSION_TIMEOUT_SECONDS": os.environ.get(
+            "AGENT_SUBMISSION_TIMEOUT_SECONDS", str(15 * 60)
+        ),
     }

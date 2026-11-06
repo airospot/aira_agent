@@ -4,18 +4,16 @@ Migration: Create conversation_memory table
 This enables long-term and short-term memory for chat and agent-tools pages
 """
 
-import psycopg2
-import os
-import sys
+from __future__ import annotations
 
-# PostgreSQL connection config
-POSTGRES_CONFIG = {
-    'host': os.getenv('POSTGRES_HOST', 'localhost'),
-    'port': int(os.getenv('POSTGRES_PORT', 5432)),
-    'database': os.getenv('POSTGRES_DB', 'base_project'),
-    'user': os.getenv('POSTGRES_USER', 'postgres'),
-    'password': os.getenv('POSTGRES_PASSWORD', 'postgres')
-}
+import sys
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from migrations._db import connect  # noqa: E402
 
 def create_table_if_not_exists(cursor):
     """Create conversation_memory table if it doesn't exist"""
@@ -85,8 +83,8 @@ def create_table_if_not_exists(cursor):
 def create_conversation_memory_table():
     """Create conversation_memory table"""
     print("🔄 Creating conversation_memory table...")
-    
-    conn = psycopg2.connect(**POSTGRES_CONFIG)
+
+    conn = connect()
     cursor = conn.cursor()
     
     try:
