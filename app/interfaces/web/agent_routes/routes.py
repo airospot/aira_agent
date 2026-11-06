@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, Mapping
 
 from flask import (
     Blueprint,
@@ -116,6 +116,7 @@ def _redirect_assistant(
     session_id: str | None = None,
     new: bool = False,
     turn_id: int | str | None = None,
+    submission_id: str | None = None,
 ):
     """303 See Other — browser refresh becomes GET, not form resubmit."""
     if new:
@@ -125,9 +126,64 @@ def _redirect_assistant(
         kwargs["session_id"] = session_id
     if turn_id is not None and str(turn_id).strip():
         kwargs["turn_id"] = turn_id
+    if submission_id and str(submission_id).strip():
+        kwargs["submission_id"] = str(submission_id).strip()
     if kwargs:
         return redirect(url_for("agent.assistant", **kwargs), code=303)
     return redirect(url_for("agent.assistant"), code=303)
+
+
+def _parse_submission_result(raw: object) -> dict[str, Any]:
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:  # noqa: BLE001
+            return {}
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _display_from_submission_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Map server-side submission result to GET render fields (no cookie)."""
+    flow_status = payload.get("flow_status")
+    agent_reply = payload.get("agent_reply")
+    assistant_text = payload.get("assistant_text")
+    agent_notice = payload.get("agent_notice")
+    if not agent_reply and flow_status == "ANSWER" and assistant_text:
+        agent_reply = assistant_text
+    if not agent_notice and flow_status not in {"ANSWER", "CLARIFY"} and assistant_text:
+        agent_notice = assistant_text
+    return {
+        "agent_reply": agent_reply,
+        "agent_notice": agent_notice,
+        "memory_error": payload.get("memory_error"),
+        "assistant_memory_id": payload.get("assistant_memory_id"),
+        "session_id": payload.get("session_id"),
+        "flow_status": flow_status,
+    }
+
+
+def _turns_include_assistant_text(turns: list, text: str | None) -> bool:
+    needle = str(text or "").strip()
+    if not needle:
+        return False
+    for turn in turns:
+        if not isinstance(turn, dict):
+            continue
+        if str(turn.get("role") or "").lower() != "assistant":
+            continue
+        if str(turn.get("content") or "").strip() == needle:
+            return True
+    return False
+
+
+def _overlay_submission_reply(turns: list, *, agent_reply: str | None) -> list:
+    """If persist failed, transcript may lack the answer — append for display."""
+    reply = str(agent_reply or "").strip()
+    if not reply or _turns_include_assistant_text(turns, reply):
+        return turns
+    out = list(turns)
+    out.append({"role": "assistant", "content": reply, "from_submission": True})
+    return out
 
 
 def _render_assistant(
@@ -202,17 +258,55 @@ def assistant():
     flow_timeline = None
     decision_trace = None
     selected_turn_id = None
+    agent_reply = None
+    agent_notice = None
     new_conversation = (request.args.get("new") or "").strip() in {"1", "true", "yes"}
     requested_turn = (request.args.get("turn_id") or "").strip() or None
+    requested_submission = (request.args.get("submission_id") or "").strip() or None
 
     if new_conversation:
         clear_last_ui(session)
 
-    agent_notice = None
+    # Full answers come from tenant-scoped agent_submissions, never the cookie.
+    submission_display: dict[str, Any] = {}
+    if customer_id and user_id and requested_submission:
+        row = submissions.get_submission(
+            customer_id=customer_id,
+            user_id=user_id,
+            submission_id=requested_submission,
+        )
+        if row:
+            status_row = str(row.get("status") or "")
+            if status_row == "completed":
+                submission_display = _display_from_submission_payload(
+                    _parse_submission_result(row.get("result_json"))
+                )
+            elif status_row == "processing":
+                submission_display = {
+                    "session_id": row.get("session_id"),
+                    "agent_notice": (
+                        "Bu gönderim hâlâ işleniyor. Lütfen bekleyin; "
+                        "otomatik yeniden çalıştırma yapılmaz."
+                    ),
+                }
+            elif status_row == "failed":
+                submission_display = {
+                    "session_id": row.get("session_id"),
+                    "agent_notice": (
+                        "Önceki gönderim zaman aşımına uğradı veya başarısız oldu. "
+                        "Yeniden denemek için yeni bir soru gönderin (yeni submission_id)."
+                    ),
+                    "memory_error": row.get("error"),
+                }
+
     if customer_id and user_id:
         try:
+            # Prefer session bound to the completed submission when present.
+            requested_session = request.args.get("session_id") or submission_display.get(
+                "session_id"
+            )
             session_id = resolve_session_id(
-                requested_session_id=request.args.get("session_id"),
+                requested_session_id=requested_session,
                 new_conversation=new_conversation,
                 customer_id=customer_id,
                 user_id=user_id,
@@ -227,13 +321,21 @@ def assistant():
                 limit=AGENT_HISTORY_PAGE,
                 offset=0,
             )
-            # Prefer explicit turn_id; else thin cookie pointer; else latest assistant.
             last_ui = pop_last_ui_for_session(session, session_id) or {}
-            if last_ui.get("memory_error") and not memory_error:
+            if submission_display.get("memory_error"):
+                memory_error = submission_display.get("memory_error")
+            elif last_ui.get("memory_error") and not memory_error:
                 memory_error = last_ui.get("memory_error")
-            if last_ui.get("agent_notice"):
+            agent_reply = submission_display.get("agent_reply")
+            agent_notice = submission_display.get("agent_notice")
+            if not agent_notice and last_ui.get("agent_notice"):
                 agent_notice = last_ui.get("agent_notice")
-            turn_ref = requested_turn or last_ui.get("assistant_memory_id")
+            turns = _overlay_submission_reply(turns, agent_reply=agent_reply)
+            turn_ref = (
+                requested_turn
+                or submission_display.get("assistant_memory_id")
+                or last_ui.get("assistant_memory_id")
+            )
             overlay = load_turn_trace(
                 session_id=session_id,
                 customer_id=customer_id,
@@ -247,21 +349,30 @@ def assistant():
         except SessionIdentityError as exc:
             memory_error = f"Konuşma kimliği reddedildi ({exc.code})."
             session_id = None
+            agent_reply = submission_display.get("agent_reply")
+            agent_notice = submission_display.get("agent_notice")
+            if submission_display.get("memory_error"):
+                memory_error = submission_display.get("memory_error")
         except MemoryReadError:
             current_app.logger.exception("agent_memory_load_failed")
             memory_error = "Konuşma belleği okunamadı. Başka oturuma düşülmedi."
+            agent_reply = submission_display.get("agent_reply")
+            agent_notice = submission_display.get("agent_notice")
+            if submission_display.get("memory_error"):
+                memory_error = submission_display.get("memory_error")
         except Exception:
             current_app.logger.exception("agent_memory_load_failed")
             memory_error = "Konuşma belleği okunamadı. Başka oturuma düşülmedi."
+            agent_reply = submission_display.get("agent_reply")
+            agent_notice = submission_display.get("agent_notice")
     else:
         last_ui = pop_last_ui_for_session(session, None) or {}
-        if last_ui.get("agent_notice"):
-            agent_notice = last_ui.get("agent_notice")
         if last_ui.get("memory_error") and not memory_error:
             memory_error = last_ui.get("memory_error")
 
     return _render_assistant(
         request_text="",
+        agent_reply=agent_reply,
         agent_notice=agent_notice,
         session_id=session_id,
         conversation_turns=turns,
@@ -333,14 +444,33 @@ def assistant_propose():
         "true",
         "yes",
     }
+    # Same submission retry must not remint session (new_conversation / empty start).
+    prior_submission = submissions.get_submission(
+        customer_id=customer_id,
+        user_id=user_id,
+        submission_id=submission_id,
+    )
+    prior_session_id = None
+    if prior_submission is not None:
+        prior_session_id = str(prior_submission.get("session_id") or "").strip() or None
+
     try:
-        session_id = resolve_session_id(
-            requested_session_id=request.form.get("session_id"),
-            new_conversation=new_conversation,
-            customer_id=customer_id,
-            user_id=user_id,
-            flask_session=session,
-        )
+        if prior_session_id:
+            session_id = resolve_session_id(
+                requested_session_id=prior_session_id,
+                new_conversation=False,
+                customer_id=customer_id,
+                user_id=user_id,
+                flask_session=session,
+            )
+        else:
+            session_id = resolve_session_id(
+                requested_session_id=request.form.get("session_id"),
+                new_conversation=new_conversation,
+                customer_id=customer_id,
+                user_id=user_id,
+                flask_session=session,
+            )
         conversation = load_flow_conversation(
             session_id=session_id,
             customer_id=customer_id,
@@ -360,6 +490,7 @@ def assistant_propose():
         )
         payload = {
             "session_id": fresh,
+            "submission_id": submission_id,
             "agent_notice": (
                 "Bu konuşma kimliği sizin oturumunuza ait değil. "
                 "Yeni konuşma açıldı — sorunuzu tekrar gönderin."
@@ -368,40 +499,48 @@ def assistant_propose():
             "replayed": False,
         }
         remember_submission(session, submission_id=submission_id, payload=payload)
-        return _redirect_assistant(session_id=fresh)
+        return _redirect_assistant(session_id=fresh, submission_id=submission_id)
     except MemoryReadError:
         current_app.logger.exception("agent_memory_pre_flow_failed")
         payload = {
             "session_id": None,
+            "submission_id": submission_id,
             "agent_notice": "Konuşma belleği okunamadı; istek güvenli şekilde durduruldu.",
             "memory_error": "Memory read failure (no cross-tenant fallback).",
             "replayed": False,
         }
         remember_submission(session, submission_id=submission_id, payload=payload)
-        return _redirect_assistant()
+        return _redirect_assistant(submission_id=submission_id)
     except Exception:
         current_app.logger.exception("agent_memory_pre_flow_failed")
         payload = {
             "session_id": None,
+            "submission_id": submission_id,
             "agent_notice": "Konuşma belleği okunamadı; istek güvenli şekilde durduruldu.",
             "memory_error": "Memory read failure (no cross-tenant fallback).",
             "replayed": False,
         }
         remember_submission(session, submission_id=submission_id, payload=payload)
-        return _redirect_assistant()
+        return _redirect_assistant(submission_id=submission_id)
 
     if not request_text:
         payload = {
             "session_id": session_id,
+            "submission_id": submission_id,
             "agent_notice": "Boş soru gönderilmedi.",
             "replayed": False,
         }
         remember_submission(session, submission_id=submission_id, payload=payload)
-        return _redirect_assistant(session_id=session_id)
+        return _redirect_assistant(
+            session_id=session_id, submission_id=submission_id
+        )
 
+    # Hash uses the reserved session when replaying so new_conversation remints
+    # and empty-session retries stay stable against the real resolver.
+    hash_session_id = prior_session_id or session_id
     request_hash = submissions.hash_request(
         request_text=request_text,
-        session_id=session_id,
+        session_id=hash_session_id,
         new_conversation=new_conversation,
     )
     timeout_seconds = int(
@@ -428,11 +567,14 @@ def assistant_propose():
         if existing is None:
             payload = {
                 "session_id": session_id,
+                "submission_id": submission_id,
                 "agent_notice": "Gönderim rezervasyonu okunamadı; lütfen yeni soru gönderin.",
                 "replayed": False,
             }
             remember_submission(session, submission_id=submission_id, payload=payload)
-            return _redirect_assistant(session_id=session_id)
+            return _redirect_assistant(
+                session_id=session_id, submission_id=submission_id
+            )
 
         if str(existing.get("request_hash") or "") != request_hash:
             return (
@@ -451,15 +593,7 @@ def assistant_propose():
 
         status_existing = str(existing.get("status") or "")
         if status_existing == "completed":
-            prior = existing.get("result_json") or {}
-            if isinstance(prior, str):
-                try:
-                    prior = json.loads(prior)
-                except Exception:  # noqa: BLE001
-                    prior = {}
-            if not isinstance(prior, dict):
-                prior = {}
-            prior = dict(prior)
+            prior = _parse_submission_result(existing.get("result_json"))
             prior["replayed"] = True
             current_app.logger.info(
                 "agent_propose_idempotent_hit submission_id=%s session_id=%s",
@@ -470,6 +604,7 @@ def assistant_propose():
             return _redirect_assistant(
                 session_id=prior.get("session_id") or existing.get("session_id"),
                 turn_id=prior.get("assistant_memory_id"),
+                submission_id=submission_id,
             )
 
         if status_existing == "processing" and not submissions.is_processing_timed_out(
@@ -477,6 +612,7 @@ def assistant_propose():
         ):
             payload = {
                 "session_id": session_id,
+                "submission_id": submission_id,
                 "agent_notice": (
                     "Bu gönderim hâlâ işleniyor. Lütfen bekleyin; "
                     "otomatik yeniden çalıştırma yapılmaz."
@@ -484,11 +620,14 @@ def assistant_propose():
                 "replayed": True,
             }
             remember_submission(session, submission_id=submission_id, payload=payload)
-            return _redirect_assistant(session_id=session_id)
+            return _redirect_assistant(
+                session_id=session_id, submission_id=submission_id
+            )
 
         # timed-out processing or failed — no auto-rerun
         payload = {
             "session_id": session_id,
+            "submission_id": submission_id,
             "agent_notice": (
                 "Önceki gönderim zaman aşımına uğradı veya başarısız oldu. "
                 "Yeniden denemek için yeni bir soru gönderin (yeni submission_id)."
@@ -497,8 +636,9 @@ def assistant_propose():
             "replayed": True,
         }
         remember_submission(session, submission_id=submission_id, payload=payload)
-        return _redirect_assistant(session_id=session_id)
-
+        return _redirect_assistant(
+            session_id=session_id, submission_id=submission_id
+        )
     flow_events: list[dict] = []
 
     def on_event(payload_event):
@@ -522,11 +662,14 @@ def assistant_propose():
         db.session.commit()
         payload = {
             "session_id": session_id,
+            "submission_id": submission_id,
             "agent_notice": f"Agent error: {type(exc).__name__}",
             "replayed": False,
         }
         remember_submission(session, submission_id=submission_id, payload=payload)
-        return _redirect_assistant(session_id=session_id)
+        return _redirect_assistant(
+            session_id=session_id, submission_id=submission_id
+        )
 
     agent_reply = None
     agent_notice = None
@@ -624,4 +767,5 @@ def assistant_propose():
     return _redirect_assistant(
         session_id=session_id,
         turn_id=persist_result.get("assistant_memory_id"),
+        submission_id=submission_id,
     )

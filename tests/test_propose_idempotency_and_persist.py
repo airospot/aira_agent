@@ -59,12 +59,17 @@ def app_client(monkeypatch: pytest.MonkeyPatch):
     from migrations.create_conversation_memory_table import (
         create_conversation_memory_table,
     )
+    from migrations.add_embedding_to_conversation_memory import add_embedding_column
 
     create_agent_submissions_table()
     try:
         create_conversation_memory_table()
     except Exception:  # noqa: BLE001
         # table may already exist from prior runs
+        pass
+    try:
+        add_embedding_column()
+    except Exception:  # noqa: BLE001
         pass
 
     from tests.conftest import load_app_py
