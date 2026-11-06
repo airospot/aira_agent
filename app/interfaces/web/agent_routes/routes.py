@@ -323,12 +323,13 @@ def assistant():
         )
 
     if customer_id and user_id:
+        # 1) Ownership / resolve — failure here must not show a recovery answer.
         try:
-            # Resolve the selected conversation first; only then overlay a matching
-            # submission (never attach conversation A's answer onto B).
             requested_session = request.args.get("session_id")
             if not requested_session and submission_row is not None:
-                requested_session = str(submission_row.get("session_id") or "").strip() or None
+                requested_session = (
+                    str(submission_row.get("session_id") or "").strip() or None
+                )
             session_id = resolve_session_id(
                 requested_session_id=requested_session,
                 new_conversation=new_conversation,
@@ -336,19 +337,26 @@ def assistant():
                 user_id=user_id,
                 flask_session=session,
             )
-            turns = load_ui_transcript(
-                session_id=session_id, customer_id=customer_id, user_id=user_id
-            )
-            past = list_agent_conversations(
-                customer_id=customer_id,
-                user_id=user_id,
-                limit=AGENT_HISTORY_PAGE,
-                offset=0,
-            )
-            last_ui = pop_last_ui_for_session(session, session_id) or {}
+        except SessionIdentityError as exc:
+            memory_error = f"Konuşma kimliği reddedildi ({exc.code})."
+            session_id = None
+        except MemoryReadError:
+            current_app.logger.exception("agent_session_resolve_failed")
+            memory_error = "Konuşma belleği okunamadı. Başka oturuma düşülmedi."
+            session_id = None
+        except Exception:
+            current_app.logger.exception("agent_session_resolve_failed")
+            memory_error = "Konuşma belleği okunamadı. Başka oturuma düşülmedi."
+            session_id = None
+
+        # 2) After successful resolve + session match, prepare server recovery
+        #    answer before transcript/list reads (those may fail independently).
+        submission_display: dict[str, Any] = {}
+        if session_id:
             submission_display = _submission_display_if_session_matches(
                 submission_row, selected_session_id=session_id
             )
+            last_ui = pop_last_ui_for_session(session, session_id) or {}
             if submission_display.get("memory_error"):
                 memory_error = submission_display.get("memory_error")
             elif last_ui.get("memory_error") and not memory_error:
@@ -357,31 +365,63 @@ def assistant():
             agent_notice = submission_display.get("agent_notice")
             if not agent_notice and last_ui.get("agent_notice"):
                 agent_notice = last_ui.get("agent_notice")
+
+            def _note_memory_read_failure() -> None:
+                nonlocal memory_error
+                read_err = "Konuşma belleği okunamadı. Başka oturuma düşülmedi."
+                if memory_error and read_err not in str(memory_error):
+                    memory_error = f"{memory_error} | {read_err}"
+                else:
+                    memory_error = memory_error or read_err
+
+            try:
+                turns = load_ui_transcript(
+                    session_id=session_id, customer_id=customer_id, user_id=user_id
+                )
+            except MemoryReadError:
+                current_app.logger.exception("agent_transcript_load_failed")
+                _note_memory_read_failure()
+                turns = []
+            except Exception:
+                current_app.logger.exception("agent_transcript_load_failed")
+                _note_memory_read_failure()
+                turns = []
+
+            try:
+                past = list_agent_conversations(
+                    customer_id=customer_id,
+                    user_id=user_id,
+                    limit=AGENT_HISTORY_PAGE,
+                    offset=0,
+                )
+            except MemoryReadError:
+                current_app.logger.exception("agent_conversation_list_failed")
+                _note_memory_read_failure()
+                past = []
+            except Exception:
+                current_app.logger.exception("agent_conversation_list_failed")
+                _note_memory_read_failure()
+                past = []
+
             turns = _overlay_submission_reply(turns, agent_reply=agent_reply)
             turn_ref = (
                 requested_turn
                 or submission_display.get("assistant_memory_id")
                 or last_ui.get("assistant_memory_id")
             )
-            overlay = load_turn_trace(
-                session_id=session_id,
-                customer_id=customer_id,
-                user_id=user_id,
-                turn_id=turn_ref,
-            )
-            if overlay and overlay.get("has_trace"):
-                flow_timeline = overlay.get("flow_timeline")
-                decision_trace = overlay.get("decision_trace")
-                selected_turn_id = overlay.get("turn_id")
-        except SessionIdentityError as exc:
-            memory_error = f"Konuşma kimliği reddedildi ({exc.code})."
-            session_id = None
-        except MemoryReadError:
-            current_app.logger.exception("agent_memory_load_failed")
-            memory_error = "Konuşma belleği okunamadı. Başka oturuma düşülmedi."
-        except Exception:
-            current_app.logger.exception("agent_memory_load_failed")
-            memory_error = "Konuşma belleği okunamadı. Başka oturuma düşülmedi."
+            try:
+                overlay = load_turn_trace(
+                    session_id=session_id,
+                    customer_id=customer_id,
+                    user_id=user_id,
+                    turn_id=turn_ref,
+                )
+                if overlay and overlay.get("has_trace"):
+                    flow_timeline = overlay.get("flow_timeline")
+                    decision_trace = overlay.get("decision_trace")
+                    selected_turn_id = overlay.get("turn_id")
+            except Exception:
+                current_app.logger.exception("agent_turn_trace_load_failed")
     else:
         last_ui = pop_last_ui_for_session(session, None) or {}
         if last_ui.get("memory_error") and not memory_error:

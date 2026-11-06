@@ -54,14 +54,14 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - Teslim commit SHA: PR / teslim raporunda (self-SHA amend yok)
 - GitHub dalı ve PR: `codex/agent-a00-baseline-checks` — https://github.com/airospot/aira_agent/pull/1
 - Çalıştırma tarihi ve test profili: 2026-11-06; yerel Linux; `NATIVE_FLOW_A00_TEST` / unit pytest
-- Otomatik test komutları ve sonuçları: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **31 passed** (inceleme #2 sonrası)
-- Gerçek PostgreSQL testi: geçti (`NATIVE_FLOW_A00_TEST`; migration×2 + concurrent empty/new submission + session mismatch + GET session match)
+- Otomatik test komutları ve sonuçları: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **33 passed**
+- Gerçek PostgreSQL testi: geçti (`NATIVE_FLOW_A00_TEST`; + transcript/list MemoryReadError iken GET recovery)
 - Gerçek MCP entegrasyon testi: uygulanmaz
 - Gerçek model testi: uygulanmaz (unit testlerde LLM yok)
 - İnceleme: BEKLEMEDE
 - Manuel UAT sahibi: proje sahibi
 - Manuel UAT: BEKLEMEDE
-- Beklenen davranış ve gözlenen davranış: cookie’de tam cevap yok; persist→GET restore; boş/new eşzamanlı tek rezervasyon; açık farklı `session_id` reddi; canonical session replay OK; GET’te A cevabı B’ye/new=1’e taşınmaz
+- Beklenen davranış ve gözlenen davranış: ownership/eşleşme sonrası recovery hazır; transcript veya liste MemoryReadError olsa da cevap + bellek uyarısı; SessionIdentityError / session mismatch / new=1’de cevap yok; cookie’de tam cevap yok
 - İlgili run/submission kimlikleri ve güvenli kanıt: test ID’leri `a00-*` / `a00-rev*` (secret yok)
 - Bilinen sınırlar ve açık kusurlar: TOCTOU symlink yarışı iddia edilmez; production DB’de race test edilmez; kısa `agent_notice` (≤240) cookie’de kalabilir
 - Geri alma: önceki kabul `99de9f4` / `main`; şema için izole test DB’de `DROP TABLE IF EXISTS agent_submissions`; production veri silinmez
