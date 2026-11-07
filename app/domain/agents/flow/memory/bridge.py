@@ -27,13 +27,15 @@ _SOURCE_KIND_NOTE = (
     "active_conversation.turns is the only active dialogue for this session. "
     "long_term_memory / structured_memory are background user context only. "
     "They must not override tool observations from file_read / file_search. "
-    "historical_tool_references are not the active document; re-verify with tools."
+    "recent_document is a same-session reference-resolution hint from the latest "
+    "successful file_read / show_image; it is not content evidence — re-verify "
+    "with tools. historical_tool_references are not the active document."
 )
 
 _CONTEXT_POLICY = {
     "active_entity_source": "active_conversation.turns_and_current_request_only",
     "document_reference_priority": (
-        "current_request_explicit_path_then_latest_opened_in_session_then_clarify"
+        "current_request_explicit_path_then_recent_document_then_clarify"
     ),
     "long_term_memory_role": (
         "authorized_user_history_and_preferences_not_automatic_entity_binding"
@@ -45,6 +47,7 @@ _CONTEXT_POLICY = {
 
 # Optional STM historical tool refs for follow-up turns (not active entity / not facts).
 _HISTORICAL_TOOL_REFERENCES_KEY = "historical_tool_references"
+_RECENT_DOCUMENT_KEY = "recent_document"
 _MAX_HISTORICAL_TOOL_REFERENCES = 40
 _MAX_HISTORICAL_TOOL_REFERENCES_JSON_BYTES = 16 * 1024  # 16 KiB total JSON budget
 _HISTORICAL_TOOL_REFERENCES_POLICY = {
@@ -53,6 +56,15 @@ _HISTORICAL_TOOL_REFERENCES_POLICY = {
     "not_active_entity": True,
     "not_current_canonical_fact": True,
     "does_not_replace_tool_observations": True,
+}
+_RECENT_DOCUMENT_POLICY = {
+    "authority": "latest_successful_file_read_or_show_image_in_session_stm",
+    "role": "reference_resolution_hint",
+    "selected_entity": False,
+    "content_evidence": False,
+    "does_not_replace_tool_observations": True,
+    "search_candidates_do_not_qualify": True,
+    "cross_session": False,
 }
 # Statuses that never yield historical source references.
 _HISTORICAL_NO_REF_STATUSES = frozenset(
@@ -236,6 +248,7 @@ def load_flow_conversation(
             )
 
     historical_tool_references = _project_historical_tool_references(short_term or [])
+    recent_document = _project_recent_document(short_term or [])
 
     long_term_block, ltm_mode, ltm_entries = _load_long_term_block(
         session_id=session_id,
@@ -296,7 +309,98 @@ def load_flow_conversation(
         out["historical_tool_references_policy"] = dict(
             _HISTORICAL_TOOL_REFERENCES_POLICY
         )
+    if recent_document:
+        out[_RECENT_DOCUMENT_KEY] = recent_document
+        out["recent_document_policy"] = dict(_RECENT_DOCUMENT_POLICY)
     return out
+
+
+def _project_recent_document(short_term: list[Any]) -> dict[str, Any] | None:
+    """Latest successful file_read / show_image in this session's STM traces.
+
+    Search/name candidates never qualify. Empty or new sessions return None.
+    Hint only — not content evidence and not a selected entity.
+    """
+    recent: dict[str, Any] | None = None
+    assistants = [
+        msg
+        for msg in short_term
+        if getattr(msg, "message_type", None) == "assistant"
+    ]
+    for msg in assistants:
+        md = getattr(msg, "meta_data", None)
+        if md is None:
+            md = getattr(msg, "metadata", None)
+        if not isinstance(md, Mapping):
+            continue
+        trace = md.get("decision_trace")
+        if not isinstance(trace, Mapping):
+            continue
+        steps = trace.get("steps")
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, Mapping):
+                continue
+            hint = _recent_document_from_step(
+                step,
+                source_assistant_memory_id=getattr(msg, "id", None),
+                source_sequence_number=getattr(msg, "sequence_number", None),
+            )
+            if hint is not None:
+                recent = hint
+    return recent
+
+
+def _recent_document_from_step(
+    step: Mapping[str, Any],
+    *,
+    source_assistant_memory_id: Any,
+    source_sequence_number: Any,
+) -> dict[str, Any] | None:
+    tool = step.get("tool")
+    if not isinstance(tool, str) or tool not in {"file_read", "show_image"}:
+        return None
+    obs = step.get("observation")
+    if not isinstance(obs, Mapping):
+        return None
+    status = step.get("tool_status")
+    if status is None:
+        status = obs.get("status")
+    if str(status) != "ok":
+        return None
+    path = obs.get("path")
+    if not isinstance(path, str) or not path.strip():
+        return None
+    hint: dict[str, Any] = {
+        "path": path.strip(),
+        "tool": tool,
+        "observation_kind": tool,
+        "source_assistant_memory_id": source_assistant_memory_id,
+        "source_sequence_number": source_sequence_number,
+        "authority": "session_recent_verified_open",
+        "role": "reference_resolution_hint",
+        "selected_entity": False,
+        "content_evidence": False,
+    }
+    step_no = step.get("step")
+    if isinstance(step_no, int) and not isinstance(step_no, bool):
+        hint["step"] = step_no
+    source_filename = obs.get("source_filename")
+    if isinstance(source_filename, str) and source_filename.strip():
+        hint["source_filename"] = source_filename.strip()
+    display_name = obs.get("display_name")
+    if isinstance(display_name, str) and display_name.strip():
+        hint["display_name"] = display_name.strip()
+    # Prefer original name for user-facing citation; never promote content.md.
+    cite = hint.get("source_filename") or hint.get("display_name")
+    if isinstance(cite, str) and cite.strip():
+        base = cite.strip().rsplit("/", 1)[-1]
+        if base.lower() not in {"content.md", "meta.json"} and not base.lower().startswith(
+            "extracted_data"
+        ):
+            hint["user_facing_title"] = cite.strip()
+    return hint
 
 
 def _historical_refs_json_bytes(refs: list[dict[str, Any]]) -> int:

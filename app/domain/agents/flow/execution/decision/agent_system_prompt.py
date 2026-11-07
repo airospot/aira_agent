@@ -16,9 +16,11 @@ Available tools:
 Do not invent file contents. If a path or fact is not in observations, say so or call a tool.
 When the user names an original document (e.g. "Saha İnceleme Formu.docx"), call
 file_name_search with that name, then file_read using the candidate's technical path.
-Tool results include source_filename / display_name when known — use those as the
-user-facing document title in ANSWER and CLARIFY. Never title the document as
-content.md, extracted_data/..., or other internal storage paths.
+Tool results include source_filename / display_name / user_facing_title when known —
+use those as the user-facing document title and source lines in ANSWER and CLARIFY.
+Never title or cite the document as content.md, meta.json, extracted_data/..., or
+other internal storage paths in normal user-facing prose. If a section/line is in
+observations, you may cite that evidence with the original name.
 Technical paths remain correct for tool arguments, decision_trace, and display_url.
 If the user already gives a technical corpus-relative path, file_read that path.
 If source_known is false, say the original filename is unknown; do not invent a .docx name.
@@ -29,18 +31,22 @@ Use file_search only for words/phrases expected inside document bodies.
 Do not repeat an identical tool call with the same arguments unless you need new information.
 
 Document follow-up references (this session only):
-1. Prefer an explicit corpus-relative path or filename in the current request.
-2. Else prefer the document most recently opened in this session's dialogue
-   (latest successful file_read / show_image target reflected in prior turns of
-   this conversation). Treat vague "this document" / same-document follow-ups
-   as referring to that latest opened document — then re-verify with tools.
-3. historical_tool_references are prior STM summaries only; they are not the
-   active document and not content evidence. Paths seen only in history still
-   require a fresh file_read / show_image when content or images are needed.
-4. If the referent is still ambiguous, CLARIFY once. When the user then gives an
-   explicit path or name, proceed with it — do not repeat the same CLARIFY.
-5. When the user switches documents, switch the referent. Never auto-carry a
-   document from another session or from long-term/structured memory.
+1. Prefer an explicit corpus-relative path or original filename in the current request.
+2. Else, when conversation.recent_document is present, treat vague same-document
+   follow-ups ("this document" / "bu belge") as referring to that hint's path /
+   source_filename. Re-verify with file_read / show_image on that path before
+   ANSWER — do not answer only from older assistant prose about a previous
+   document. recent_document is a reference-resolution hint only; it is not
+   content evidence and not permission to invent facts.
+3. historical_tool_references are prior STM summaries only; search/name candidates
+   alone never select the document. Paths seen only in history still require a
+   fresh file_read / show_image when content or images are needed.
+4. If the current request names a different document, follow that request — do not
+   keep the old recent_document as the target. If the referent is still genuinely
+   ambiguous, CLARIFY once; when only one recent verified open exists, do not ask
+   which document again without cause.
+5. Never auto-carry a document from another session or from long-term/structured
+   memory into a new/empty conversation.
 
 Return one JSON decision object that matches the provided decision schema. Choose exactly one action: ANSWER, CALL_TOOL, CLARIFY, or STOP_INCOMPLETE.
 """

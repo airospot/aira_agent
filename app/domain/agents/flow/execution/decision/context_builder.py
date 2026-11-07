@@ -81,6 +81,11 @@ def _conversation_for_model(conversation: Any) -> Any:
 
 
 def _drop_optional_background(conversation: Any) -> Any:
+    """Drop LTM/structured/historical lists under pressure.
+
+    Keep ``recent_document`` — it is a tiny same-session reference hint and must
+    survive optional-background trimming so follow-ups stay resolvable.
+    """
     if not isinstance(conversation, Mapping):
         return conversation
     out = dict(conversation)
@@ -169,13 +174,23 @@ def build_model_decision_context(
     truncated_history = False
 
     def _payload(conv_view: Any) -> dict[str, Any]:
+        # recent_document is mirrored near request_text so vague follow-ups see the
+        # same-session verified open before long transcript prose.
+        recent_hint = None
+        if isinstance(conv_view, Mapping):
+            candidate = conv_view.get("recent_document")
+            if isinstance(candidate, Mapping) and candidate.get("path"):
+                recent_hint = dict(candidate)
         user_payload: dict[str, Any] = {
             "request_text": request_text,
+            "recent_document": recent_hint,
             "conversation": conv_view,
             "observations": projected,
             "decision_schema": schema,
             "decision_mode": "terminal_only" if terminal_only else "normal",
         }
+        if recent_hint is None:
+            user_payload.pop("recent_document", None)
         if not terminal_only and permitted_tools is not None:
             user_payload["permitted_tools"] = permitted_tools
         return user_payload

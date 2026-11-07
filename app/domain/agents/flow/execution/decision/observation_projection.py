@@ -17,6 +17,7 @@ _IDENTITY_KEYS = (
     "error",
     "source_filename",
     "display_name",
+    "user_facing_title",
     "source_known",
     "source_ambiguous",
     "alternate_source_filenames",
@@ -30,6 +31,23 @@ _IDENTITY_KEYS = (
     "name",
 )
 
+_INTERNAL_BASENAMES = frozenset({"content.md", "meta.json"})
+
+
+def _user_facing_title_from(raw: Mapping[str, Any]) -> str | None:
+    for key in ("source_filename", "display_name"):
+        val = raw.get(key)
+        if not isinstance(val, str) or not val.strip():
+            continue
+        name = val.strip()
+        base = name.rsplit("/", 1)[-1].lower()
+        if base in _INTERNAL_BASENAMES or name.replace("\\", "/").startswith(
+            "extracted_data/"
+        ):
+            continue
+        return name
+    return None
+
 
 def _json_bytes(value: Any) -> int:
     return utf8_json_bytes(value)
@@ -40,6 +58,10 @@ def _copy_identity(raw: Mapping[str, Any]) -> dict[str, Any]:
     for key in _IDENTITY_KEYS:
         if key in raw:
             out[key] = deepcopy(raw[key])
+    if "user_facing_title" not in out:
+        title = _user_facing_title_from(raw)
+        if title:
+            out["user_facing_title"] = title
     return out
 
 
