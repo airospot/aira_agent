@@ -66,8 +66,8 @@ def build_native_tool_registry() -> ToolRegistry:
                 handler=_HANDLERS[name],
                 catalog_document=tool_doc,
                 side_effect_class="read",
-                retry_policy=None,
-                cache_policy=None,
+                retry_policy="transient",
+                cache_policy="none",
                 timeout_seconds=None,
             )
         )

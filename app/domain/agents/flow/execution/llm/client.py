@@ -86,7 +86,19 @@ class FlowLlmClient:
             )
         )
 
-    def complete_json(self, system_prompt: str, user_payload: dict[str, Any]) -> dict[str, Any]:
+    def complete_json(
+        self,
+        system_prompt: str,
+        user_payload: dict[str, Any],
+        *,
+        timeout_seconds: float | int | None = None,
+    ) -> dict[str, Any]:
+        """Request one JSON decision.
+
+        ``timeout_seconds`` is per-call and does not mutate ``self.timeout_seconds``.
+        urllib's timeout is a socket idle/connect bound — not a hard total wall-clock
+        guarantee on every platform. Callers should still check run deadlines after return.
+        """
         safe_user = redact_secrets(user_payload)
         user_json = json.dumps(safe_user, ensure_ascii=False)
         local = self._is_local_openai_compatible()
@@ -110,7 +122,12 @@ class FlowLlmClient:
         # Older OpenAI-compatible models still accept an explicit low temperature.
         if not self.model.lower().startswith("gpt-6-luna"):
             body["temperature"] = 0.1
-        payload, request_id = self._post_chat(body)
+        call_timeout = (
+            float(timeout_seconds)
+            if timeout_seconds is not None
+            else float(self.timeout_seconds)
+        )
+        payload, request_id = self._post_chat(body, timeout_seconds=call_timeout)
 
         usage = payload.get("usage") or {}
         self.last_meta = {
@@ -141,7 +158,12 @@ class FlowLlmClient:
                 "malformed_model_response",
             ) from None
 
-    def _post_chat(self, body: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    def _post_chat(
+        self,
+        body: dict[str, Any],
+        *,
+        timeout_seconds: float | None = None,
+    ) -> tuple[dict[str, Any], str | None]:
         data = json.dumps(body).encode("utf-8")
         req = urllib.request.Request(
             f"{self.base_url}/chat/completions",
@@ -152,8 +174,13 @@ class FlowLlmClient:
             },
             method="POST",
         )
+        effective_timeout = (
+            float(timeout_seconds)
+            if timeout_seconds is not None
+            else float(self.timeout_seconds)
+        )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
+            with urllib.request.urlopen(req, timeout=effective_timeout) as resp:
                 raw = resp.read().decode("utf-8")
                 request_id = resp.headers.get("x-request-id") or resp.headers.get(
                     "openai-request-id"
@@ -177,7 +204,7 @@ class FlowLlmClient:
                 "provider": "openai_compatible",
                 "model": self.model,
                 "error_class": "timeout",
-                "timeout_seconds": self.timeout_seconds,
+                "timeout_seconds": effective_timeout,
             }
             raise FlowLlmClientError("LLM request timed out", "timeout") from None
         except Exception as exc:

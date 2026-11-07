@@ -133,3 +133,36 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - Manuel UAT: **BEKLEMEDE**
 - Kısa UAT: DOCX+TXT yükle → orijinal indir → çıkarımı sor/görsel göster → ayrı tenant’ta arama/URL erişilemez → profili geri al
 - Merge / A03: yok
+
+## A03 teknik kayıt
+
+- Aşama: A03 (run budgets + bounded context)
+- Başlangıç commit: `2febf5d1cfa16445f1f1c0e6e53f1997531dfe26` (PR #4 head; merge yetkisi bu kayıtta yok)
+- Teslim commit SHA: (push sonrası)
+- GitHub dalı ve PR: `codex/agent-a03-run-budgets` (draft)
+- Çalıştırma tarihi ve test profili: 2026-11-07; yerel Linux; fake monotonic clock/client; `NATIVE_FLOW_A00_TEST`
+- Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **128 passed**
+- Gerçek PostgreSQL testi: geçti (`NATIVE_FLOW_A00_TEST` URL ile suite; A03 şema migration yok)
+- Gerçek MCP entegrasyon testi: uygulanmaz
+- Gerçek model testi: beklemede
+- İnceleme: **BEKLEMEDE**
+- Manuel UAT sahibi: proje sahibi
+- Manuel UAT: **BEKLEMEDE**
+- Uygulanan timeout/bütçe (`.env` / `.env.example`; kodda numeric default yok):
+  - `AGENT_MAX_STEPS=8`
+  - `AGENT_RUN_TIMEOUT_SECONDS=180` (yalnız runner/agent loop; upload/OCR/DB/HTTP request bütünü değil)
+  - `AGENT_TOOL_TIMEOUT_SECONDS=15` (cooperative native slice)
+  - `AGENT_MAX_OBSERVATION_BYTES=65536`
+  - `AGENT_MAX_CONTEXT_BYTES=131072`
+  - `AGENT_MAX_TOOL_RETRIES=1`
+- Otomatik kanıt: max_steps=1 terminal-only; deadline LLM/tool engeli; context/observation UTF-8 byte limit + identity koruma; duplicate history yok; native duplicate/retry/write-no-retry; persist/replay
+- Bilinen sınırlar: urllib timeout kesin wall-clock kill değildir; native sync tool zorla kesilmez; submission_timeout ≠ run deadline
+- Geri alma: branch sil / önceki `2febf5d`; şema migration yok
+- Merge / A04: yok
+
+### A03 manuel UAT talimatı (kullanıcı)
+
+1. Normal `.env` profili: `04_multilingual_unicode.docx` özeti → “bu belgedeki denetim sıklığı?”; sonra `03_lowres_scan_inside_word.docx` özeti → “bu belgedeki görseli göster”. Gerçek belge adı / takip bozulmamalı.
+2. Geçici override `AGENT_MAX_STEPS=1` (yalnız app config/.env; shell prefix’e güvenme): yeni belge okuma → uydurma özet yerine anlaşılır STOP/açıklama. Flaky gerçek-model hızıyla PASS üretme.
+3. Sentetik büyük TXT: kısaltma görünür, kaynak adı korunur. Yenileme / yeni konuşma davranışı korunur.
+4. Override’ları geri al; normal `.env` commit edilmez.

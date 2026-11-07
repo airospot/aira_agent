@@ -69,11 +69,25 @@ def is_resolved_under_corpus(root: Path, path: Path) -> bool:
         return False
 
 
-def is_probably_text(path: Path) -> bool:
+def read_limited_bytes(path: Path, *, max_bytes: int) -> tuple[bytes, bool]:
+    """Read at most ``max_bytes`` without loading the whole file into memory.
+
+    Returns ``(chunk, truncated)``. Does not claim to preempt a blocked OS read.
+    """
+    limit = max(0, int(max_bytes))
+    with path.open("rb") as fh:
+        chunk = fh.read(limit + 1)
+    truncated = len(chunk) > limit
+    if truncated:
+        chunk = chunk[:limit]
+    return chunk, truncated
+
+
+def is_probably_text(path: Path, *, probe_bytes: int = 512) -> bool:
     if path.suffix.lower() in TEXT_SUFFIXES:
         return True
     try:
-        sample = path.read_bytes()[:512]
+        sample, _ = read_limited_bytes(path, max_bytes=max(1, int(probe_bytes)))
     except OSError:
         return False
     if b"\x00" in sample:

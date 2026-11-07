@@ -1,7 +1,8 @@
-"""ToolExecutor — permission, validate-in, handler, validate-out (A01)."""
+"""ToolExecutor — permission, validate-in, handler, validate-out (A01/A03)."""
 
 from __future__ import annotations
 
+import inspect
 from copy import deepcopy
 from typing import Any, Collection, Mapping
 
@@ -39,6 +40,7 @@ class ToolExecutor:
         arguments: Any,
         *,
         config: Mapping[str, Any] | None = None,
+        execution_control: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         tool_name = str(name or "").strip()
         if not tool_name:
@@ -62,7 +64,12 @@ class ToolExecutor:
                 f"invalid arguments for {tool_name}: {exc.message}"
             ) from exc
 
-        raw = spec.handler(args_copy, config=config)
+        raw = self._invoke_handler(
+            spec.handler,
+            args_copy,
+            config=config,
+            execution_control=execution_control,
+        )
         if not isinstance(raw, Mapping):
             raise ToolResultValidationError(
                 f"tool {tool_name} returned non-object result"
@@ -84,5 +91,39 @@ class ToolExecutor:
         arguments: Any,
         *,
         config: Mapping[str, Any] | None = None,
+        execution_control: Mapping[str, Any] | None = None,
     ) -> ToolResult:
-        return ToolResult(data=self.execute(name, arguments, config=config))
+        return ToolResult(
+            data=self.execute(
+                name,
+                arguments,
+                config=config,
+                execution_control=execution_control,
+            )
+        )
+
+    @staticmethod
+    def _invoke_handler(
+        handler: Any,
+        args_copy: Any,
+        *,
+        config: Mapping[str, Any] | None,
+        execution_control: Mapping[str, Any] | None,
+    ) -> Any:
+        """Call handler; pass execution_control only when accepted (compat)."""
+        try:
+            params = inspect.signature(handler).parameters
+        except (TypeError, ValueError):
+            params = {}
+        kwargs: dict[str, Any] = {"config": config}
+        if execution_control is not None and (
+            "execution_control" in params or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+            )
+        ):
+            kwargs["execution_control"] = execution_control
+        try:
+            return handler(args_copy, **kwargs)
+        except TypeError:
+            # Legacy handlers that only accept (arguments, *, config=).
+            return handler(args_copy, config=config)

@@ -12,6 +12,7 @@ from app.domain.agents.flow.tooling import (
     build_native_tool_registry,
 )
 from app.domain.agents.flow.tooling.native_bootstrap import NATIVE_TOOL_NAMES
+from tests.a03_policy_helpers import corpus_config
 
 
 def _scripted_decisions(sequence: list[dict[str, Any]]):
@@ -34,7 +35,7 @@ def test_runner_scripted_file_read_preserves_events_and_trace(tmp_path: Path) ->
     corpus = tmp_path / "corpus"
     corpus.mkdir()
     (corpus / "note.md").write_text("Merhaba corpus\n", encoding="utf-8")
-    config = {"AGENT_CORPUS_DIR": str(corpus)}
+    config = corpus_config(str(corpus))
 
     decide_fn, _calls = _scripted_decisions(
         [
@@ -160,7 +161,7 @@ def test_fifth_test_tool_dispatch_without_production_registration(
         result = run_knowledge_agent(
             "iki katı",
             conversation=[],
-            config={"AGENT_CORPUS_DIR": str(tmp_path)},
+            config=corpus_config(str(tmp_path)),
             on_event=events.append,
             tool_registry=registry,
             permitted_tool_names=permitted,
@@ -235,7 +236,7 @@ def test_empty_permit_list_does_not_run_handler(tmp_path: Path) -> None:
         result = run_knowledge_agent(
             "echo",
             conversation=[],
-            config={"AGENT_CORPUS_DIR": str(tmp_path)},
+            config=corpus_config(str(tmp_path)),
             tool_registry=registry,
             permitted_tool_names=frozenset(),  # empty allowlist
         )

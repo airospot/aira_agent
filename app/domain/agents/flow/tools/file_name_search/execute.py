@@ -8,6 +8,10 @@ from typing import Any, Mapping
 
 from jsonschema import Draft202012Validator
 
+from app.domain.agents.flow.tooling.execution_control import (
+    ToolDeadlineExceeded,
+    execution_control_from_mapping,
+)
 from app.shared.corpus_path_sandbox import (
     is_resolved_under_corpus,
     resolve_corpus_root,
@@ -29,9 +33,10 @@ def execute_file_name_search(
     arguments: Any,
     *,
     config: Mapping[str, Any] | None = None,
+    execution_control: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     _ARGUMENTS_VALIDATOR.validate(arguments)
-    result = _search_names(arguments, config=config)
+    result = _search_names(arguments, config=config, execution_control=execution_control)
     _RESULT_VALIDATOR.validate(result)
     return result
 
@@ -40,7 +45,9 @@ def _search_names(
     arguments: Mapping[str, Any],
     *,
     config: Mapping[str, Any] | None,
+    execution_control: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    control = execution_control_from_mapping(execution_control)
     query = str(arguments.get("query") or "").strip()
     if not query:
         return {
@@ -56,8 +63,24 @@ def _search_names(
     limit = max(1, min(limit, 50))
     pattern = str(arguments.get("glob") or "**/*").strip() or "**/*"
     root = resolve_corpus_root(config)
+    paths: list[Path] = []
     try:
-        paths = sorted(p for p in root.glob(pattern) if p.is_file())
+        for idx, path in enumerate(root.glob(pattern)):
+            if control is not None and idx % max(1, control.check_every_n) == 0:
+                control.checkpoint()
+            if path.is_file():
+                paths.append(path)
+        paths.sort()
+    except ToolDeadlineExceeded:
+        return {
+            "status": "error",
+            "query": query,
+            "matched_total": 0,
+            "returned_count": 0,
+            "truncated": False,
+            "candidates": [],
+            "error": "tool_deadline_exceeded",
+        }
     except ValueError:
         return {
             "status": "invalid_argument",
@@ -71,7 +94,20 @@ def _search_names(
 
     matches = iter_source_name_matches(root, query=query, paths=paths)
     hits: list[dict[str, Any]] = []
-    for match in matches:
+    for match_idx, match in enumerate(matches):
+        if control is not None and match_idx % max(1, control.check_every_n) == 0:
+            try:
+                control.checkpoint()
+            except ToolDeadlineExceeded:
+                return {
+                    "status": "error",
+                    "query": query,
+                    "matched_total": len(hits),
+                    "returned_count": len(hits),
+                    "truncated": True,
+                    "candidates": hits,
+                    "error": "tool_deadline_exceeded",
+                }
         target = root / match.path
         if not is_resolved_under_corpus(root, target) or not target.is_file():
             continue
@@ -80,7 +116,6 @@ def _search_names(
         except OSError:
             size = 0
         identity = resolve_document_source(root, match.path)
-        # Prefer the specific original name that matched the query when present.
         source_filename = match.source_filename or identity.source_filename
         display_name = (
             match.source_filename

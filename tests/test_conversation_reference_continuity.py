@@ -20,9 +20,19 @@ class CaptureClient:
         self.script = list(script)
         self.calls: list[dict[str, Any]] = []
 
-    def complete_json(self, system_prompt: str, user_payload: dict[str, Any]):
+    def complete_json(
+        self,
+        system_prompt: str,
+        user_payload: dict[str, Any],
+        *,
+        timeout_seconds: float | int | None = None,
+    ):
         self.calls.append(
-            {"system_prompt": system_prompt, "user_payload": dict(user_payload)}
+            {
+                "system_prompt": system_prompt,
+                "user_payload": dict(user_payload),
+                "timeout_seconds": timeout_seconds,
+            }
         )
         if not self.script:
             return {"action": "STOP_INCOMPLETE", "reason": "exhausted"}
@@ -62,7 +72,9 @@ def test_a_then_b_then_this_document_prefers_latest_opened(tmp_path: Path):
         + b"\x00\x00\x00\x00IEND\xaeB`\x82"
     )
     (corpus / "extracted_data" / "doc_b" / "images" / "img_001.png").write_bytes(png)
-    config = {"AGENT_CORPUS_DIR": str(corpus)}
+    from tests.a03_policy_helpers import corpus_config
+
+    config = corpus_config(str(corpus))
 
     # Turn 1: open A
     client1 = CaptureClient(
@@ -129,7 +141,10 @@ def test_a_then_b_then_this_document_prefers_latest_opened(tmp_path: Path):
         client2.calls[0]["user_payload"]["request_text"]
         == "extracted_data/doc_b/content.md ozetle"
     )
-    hist = client2.calls[0]["user_payload"]["conversation"]["turns"]
+    conv_payload = client2.calls[0]["user_payload"]["conversation"]
+    # Model payload uses a single history copy under active_conversation.turns.
+    hist = (conv_payload.get("active_conversation") or {}).get("turns") or []
+    assert "turns" not in conv_payload
     assert any("doc_a" in str(t.get("content")) for t in hist)
 
     conv_after_b = {
@@ -188,7 +203,7 @@ def test_a_then_b_then_this_document_prefers_latest_opened(tmp_path: Path):
     payload3 = client3.calls[0]["user_payload"]
     assert payload3["request_text"] == "bu belgedeki gorseli goster"
     # Persist window: both prior docs visible; B is latest assistant topic
-    turns = payload3["conversation"]["turns"]
+    turns = (payload3["conversation"].get("active_conversation") or {}).get("turns") or []
     assert turns[-1]["content"] == r2["decision"]["answer"]
     assert "Document follow-up references" in client3.calls[0]["system_prompt"]
     # Tool actually hit B image, not A
@@ -201,7 +216,9 @@ def test_explicit_path_after_clarify_uses_named_doc(tmp_path: Path):
     corpus = tmp_path / "corpus"
     (corpus / "extracted_data" / "doc_a").mkdir(parents=True)
     (corpus / "extracted_data" / "doc_a" / "content.md").write_text("A\n", encoding="utf-8")
-    config = {"AGENT_CORPUS_DIR": str(corpus)}
+    from tests.a03_policy_helpers import corpus_config
+
+    config = corpus_config(str(corpus))
 
     prior = {
         "turns": [

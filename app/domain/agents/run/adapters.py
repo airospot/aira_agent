@@ -183,6 +183,7 @@ def default_runner(
     config: Mapping[str, Any] | None,
     on_event: Any = None,
     permitted_tool_names: frozenset[str] | None = None,
+    run_policy: Any = None,
 ) -> dict[str, Any]:
     return run_knowledge_agent(
         request_text,
@@ -190,4 +191,5 @@ def default_runner(
         config=config,
         on_event=on_event,
         permitted_tool_names=permitted_tool_names,
+        run_policy=run_policy,
     )

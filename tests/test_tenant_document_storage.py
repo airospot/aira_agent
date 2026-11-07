@@ -341,8 +341,12 @@ def test_path_traversal_upload_id_download(tenant_app):
 
 def test_execution_context_uses_tenant_corpus(tmp_path):
     from app.domain.agents.run.factory import build_execution_context
+    from tests.a03_policy_helpers import recommended_policy_config
 
-    cfg = {"TENANT_DATA_ROOT": str(tmp_path / "tenants"), "AGENT_CORPUS_DIR": "/shared/liar"}
+    cfg = recommended_policy_config(
+        TENANT_DATA_ROOT=str(tmp_path / "tenants"),
+        AGENT_CORPUS_DIR="/shared/liar",
+    )
     ctx = build_execution_context(customer_id=5, user_id=9, config=cfg)
     assert str(tmp_path / "tenants" / "5" / "corpus") == ctx.corpus_root
     assert ctx.runner_config["AGENT_CORPUS_DIR"] == ctx.corpus_root

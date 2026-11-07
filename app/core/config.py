@@ -31,4 +31,11 @@ def build_app_config() -> dict[str, Any]:
         "AGENT_SUBMISSION_TIMEOUT_SECONDS": os.environ.get(
             "AGENT_SUBMISSION_TIMEOUT_SECONDS", str(15 * 60)
         ),
+        # A03 run budgets — values must come from .env; no code-side numeric defaults.
+        "AGENT_MAX_STEPS": os.environ.get("AGENT_MAX_STEPS"),
+        "AGENT_RUN_TIMEOUT_SECONDS": os.environ.get("AGENT_RUN_TIMEOUT_SECONDS"),
+        "AGENT_TOOL_TIMEOUT_SECONDS": os.environ.get("AGENT_TOOL_TIMEOUT_SECONDS"),
+        "AGENT_MAX_OBSERVATION_BYTES": os.environ.get("AGENT_MAX_OBSERVATION_BYTES"),
+        "AGENT_MAX_CONTEXT_BYTES": os.environ.get("AGENT_MAX_CONTEXT_BYTES"),
+        "AGENT_MAX_TOOL_RETRIES": os.environ.get("AGENT_MAX_TOOL_RETRIES"),
     }

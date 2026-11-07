@@ -98,13 +98,15 @@ class FakeSubmissions:
 
 
 def _ctx() -> ExecutionContext:
+    from tests.a03_policy_helpers import recommended_policy_config
+
     return ExecutionContext(
         customer_id=1,
         user_id=2,
         corpus_root="/tmp/corpus",
         permitted_tool_names=frozenset({"file_read"}),
         submission_timeout_seconds=900,
-        runner_config={"KNOWLEDGE_FLOW_LLM_MODEL": "test"},
+        runner_config=recommended_policy_config(KNOWLEDGE_FLOW_LLM_MODEL="test"),
     )
 
 
@@ -322,7 +324,9 @@ def test_execution_context_rejects_bool_ids():
 
 
 def test_runner_config_is_independent_snapshot_and_uses_verified_corpus():
-    src = {"AGENT_CORPUS_DIR": "/liar/path", "OTHER": "keep"}
+    from tests.a03_policy_helpers import recommended_policy_config
+
+    src = recommended_policy_config(AGENT_CORPUS_DIR="/liar/path", OTHER="keep")
     ctx = ExecutionContext(
         customer_id=1,
         user_id=2,
@@ -348,13 +352,15 @@ def test_conflicting_config_corpus_overridden_for_runner():
             "decision": {"action": "ANSWER", "answer": "ok"},
         }
 
+    from tests.a03_policy_helpers import recommended_policy_config
+
     ctx = ExecutionContext(
         customer_id=1,
         user_id=2,
         corpus_root="/verified/root",
         permitted_tool_names=frozenset({"file_read"}),
         submission_timeout_seconds=60,
-        runner_config={"AGENT_CORPUS_DIR": "/wrong"},
+        runner_config=recommended_policy_config(AGENT_CORPUS_DIR="/wrong"),
     )
     svc = AgentRunService(
         memory=FakeMemory(), submissions=FakeSubmissions(), runner=runner

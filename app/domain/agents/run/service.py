@@ -126,11 +126,32 @@ def pack_decision_trace(result: dict) -> dict | None:
     decision_trace = result.get("decision_trace")
     if not isinstance(decision_trace, list):
         return None
-    return {
+    packed: dict = {
         "final_status": result.get("decision_trace_final_status"),
         "final_action": result.get("decision_trace_final_action"),
         "steps": decision_trace,
     }
+    run_budget = result.get("run_budget")
+    if isinstance(run_budget, dict):
+        # Limited metadata only — no document bodies/secrets.
+        packed["run_budget"] = {
+            key: run_budget.get(key)
+            for key in (
+                "run_policy",
+                "stop_code",
+                "elapsed_seconds",
+                "remaining_seconds",
+                "total_tool_retries",
+                "last_context_bytes",
+                "last_observation_bytes",
+                "context_truncated",
+                "observation_truncated",
+                "usage_totals",
+            )
+            if key in run_budget
+        }
+    return packed
+
 
 
 class AgentRunService:
@@ -481,6 +502,7 @@ class AgentRunService:
                 config=ctx.runner_config,
                 on_event=on_event,
                 permitted_tool_names=ctx.permitted_tool_names,
+                run_policy=ctx.run_policy,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("agent_flow_crashed")

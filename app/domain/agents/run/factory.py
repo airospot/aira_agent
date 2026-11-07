@@ -10,6 +10,7 @@ from app.domain.agents.run.adapters import (
     SqlAlchemySubmissionAdapter,
     default_runner,
 )
+from app.domain.agents.flow.execution.run_policy import parse_run_policy
 from app.domain.agents.run.contracts import ExecutionContext
 from app.domain.agents.run.service import AgentRunService
 from app.shared.tenant_storage import resolve_tenant_storage
@@ -51,6 +52,8 @@ def build_execution_context(
     # Per-request tenant corpus — no shared AGENT_CORPUS_DIR fallback.
     storage = resolve_tenant_storage(customer_id, config)
     root = storage.corpus_root
+    # Single validation point for run budgets (form/model cannot override).
+    policy = parse_run_policy(config)
     return ExecutionContext(
         customer_id=customer_id,
         user_id=user_id,
@@ -58,4 +61,5 @@ def build_execution_context(
         permitted_tool_names=frozenset(NATIVE_TOOL_NAMES),
         submission_timeout_seconds=timeout,
         runner_config=config,
+        run_policy=policy,
     )

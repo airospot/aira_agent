@@ -2,12 +2,18 @@
 
 Orchestrates decide → validate → optional execute_tool.
 No prompt, provider, JSON parsing, tool selection, or semantic logic.
+A03: run budget / deadline / limited retries via optional RunBudget + tool policy.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
+
+from app.domain.agents.flow.execution.run_policy import (
+    RunBudget,
+    stop_incomplete_payload,
+)
 
 
 _TERMINAL = frozenset({"ANSWER", "CLARIFY", "STOP_INCOMPLETE"})
@@ -26,6 +32,9 @@ _STEP_BUDGET_REASON = (
     "Adım bütçesi doldu; mevcut gözlemlerle tamamlanamadı."
 )
 
+# ToolSpec.retry_policy values accepted in A03.
+_SUPPORTED_RETRY_POLICIES = frozenset({None, "none", "transient"})
+
 
 def _failure(stage: str, exc: BaseException) -> dict[str, Any]:
     return {
@@ -43,7 +52,9 @@ def _error(stage: str, code: str) -> dict[str, Any]:
     }
 
 
-def _stop_incomplete(reason: str, observations: list[Any]) -> dict[str, Any]:
+def _stop_incomplete(reason: str, observations: list[Any], *, code: str | None = None) -> dict[str, Any]:
+    if code:
+        return stop_incomplete_payload(code=code, reason=reason, observations=observations)
     return {
         "status": "STOP_INCOMPLETE",
         "decision": {
@@ -71,7 +82,6 @@ def _canonicalize_json(value: Any) -> Any:
         return value
     if isinstance(value, float):
         return value
-    # Non-JSON scalars → stable string; never raise to the Flow boundary.
     return str(value)
 
 
@@ -83,11 +93,6 @@ def _canonicalize_arguments(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _tool_request_fingerprint(decision: Any) -> str | None:
-    """Request-scoped identity of a CALL_TOOL decision (tool + canonical args).
-
-    Returns a hashable JSON string. Nested list/dict arguments are supported.
-    Fingerprint failures return None (call proceeds untracked) — never raise.
-    """
     try:
         if not isinstance(decision, dict):
             return None
@@ -160,7 +165,6 @@ def _call_decide(
             decision_constraints=None,
         )
     except TypeError:
-        # Legacy 3-arg decide callables (isolated fixtures / older adapters).
         return decide(request_text, conversation, observations)
 
 
@@ -178,25 +182,82 @@ def _call_validate(
         return validate(decision)
 
 
+def _tool_meta(lookup: Callable[[str], Mapping[str, Any] | None] | None, tool: str) -> Mapping[str, Any]:
+    if lookup is None:
+        return {}
+    meta = lookup(tool)
+    return meta if isinstance(meta, Mapping) else {}
+
+
+def _validate_retry_policy(policy: Any) -> str | None:
+    if policy is None:
+        return None
+    text = str(policy).strip().lower()
+    if text not in {"none", "transient"}:
+        raise ValueError(f"unsupported retry_policy: {policy!r}")
+    return text
+
+
+def _may_retry_error(
+    *,
+    budget: RunBudget | None,
+    fingerprint: str | None,
+    tool_meta: Mapping[str, Any],
+) -> bool:
+    side = str(tool_meta.get("side_effect_class") or "read").strip().lower()
+    if side == "write":
+        return False
+    policy = _validate_retry_policy(tool_meta.get("retry_policy"))
+    if policy == "none":
+        return False
+    # Default / transient: allow up to max_tool_retries additional attempts.
+    if budget is None or fingerprint is None:
+        return True
+    if budget.deadline_exceeded():
+        return False
+    used = budget.retries_used(fingerprint)
+    return used < budget.policy.max_tool_retries
+
+
+def _is_repeatable_success(tool_meta: Mapping[str, Any]) -> bool:
+    extra = tool_meta.get("extra_metadata")
+    if isinstance(extra, Mapping) and bool(extra.get("repeatable")):
+        return True
+    return bool(tool_meta.get("repeatable"))
+
+
 def run_agent_loop(
     request_text: str,
     conversation: Any,
     decide: Callable[..., Any],
     validate: Callable[..., Any],
     execute_tool: Callable[..., Any] | None = None,
-    max_steps: int = 8,
+    max_steps: int | None = None,
+    *,
+    budget: RunBudget | None = None,
+    tool_meta_lookup: Callable[[str], Mapping[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
     observations: list[Any] = []
-    # Request-scoped only: tool+args fingerprint → prior observation record.
     prior_tool_results: dict[str, dict[str, Any]] = {}
-    # After a no-progress duplicate CALL_TOOL, next decide/validate are terminal-only.
     awaiting_terminal_only = False
 
-    for step in range(1, max_steps + 1):
-        # Finalization reserve: last decision slot is terminal-only so the model
-        # must ANSWER / CLARIFY / STOP_INCOMPLETE from existing observations
-        # instead of spending the budget on a CALL_TOOL that cannot execute.
-        terminal_only = awaiting_terminal_only or step >= max_steps
+    if budget is not None:
+        steps = budget.policy.max_steps
+    elif max_steps is not None:
+        steps = int(max_steps)
+    else:
+        raise ValueError("max_steps or budget.policy.max_steps is required")
+
+    for step in range(1, steps + 1):
+        if budget is not None and budget.deadline_exceeded():
+            budget.mark_deadline()
+            return _stop_incomplete(
+                budget.stop_reason or _STEP_BUDGET_REASON,
+                observations,
+                code=budget.stop_code,
+            )
+
+        terminal_only = awaiting_terminal_only or step >= steps
         try:
             decision = _call_decide(
                 decide,
@@ -205,8 +266,36 @@ def run_agent_loop(
                 observations,
                 terminal_only=terminal_only,
             )
-        except Exception as exc:  # noqa: BLE001 — stage-bounded technical failure
+        except Exception as exc:  # noqa: BLE001
+            # Context/deadline coded stops surface as STOP_INCOMPLETE when tagged.
+            code = getattr(exc, "code", None)
+            if isinstance(code, str) and code in {
+                "context_budget_exceeded",
+                "observation_budget_exceeded",
+                "run_deadline_exceeded",
+            }:
+                if budget is not None:
+                    if code == "run_deadline_exceeded":
+                        budget.mark_deadline()
+                    elif code == "context_budget_exceeded":
+                        budget.mark_context_exceeded()
+                    else:
+                        budget.mark_observation_exceeded()
+                    return _stop_incomplete(
+                        budget.stop_reason or str(exc),
+                        observations,
+                        code=budget.stop_code or code,
+                    )
+                return _stop_incomplete(str(exc), observations, code=code)
             return _failure("decide", exc)
+
+        if budget is not None and budget.deadline_exceeded():
+            budget.mark_deadline()
+            return _stop_incomplete(
+                budget.stop_reason or _STEP_BUDGET_REASON,
+                observations,
+                code=budget.stop_code,
+            )
 
         try:
             action = _call_validate(
@@ -214,40 +303,86 @@ def run_agent_loop(
                 decision,
                 terminal_only=terminal_only,
             )
-        except Exception as exc:  # noqa: BLE001 — stage-bounded technical failure
+        except Exception as exc:  # noqa: BLE001
+            if terminal_only:
+                # Model emitted a non-terminal action under terminal-only schema.
+                return _stop_incomplete(
+                    _TERMINAL_ONLY_VIOLATION_REASON,
+                    observations,
+                )
             return _failure("validate", exc)
 
         if action in _TERMINAL:
-            return {
+            out = {
                 "status": action,
                 "decision": decision,
                 "observations": observations,
             }
+            return out
 
         if action == "CALL_TOOL":
             if terminal_only:
-                # Defense in depth: terminal schema should have rejected this
-                # (duplicate-driven or finalization-reserve terminal_only).
                 return _stop_incomplete(
                     _TERMINAL_ONLY_VIOLATION_REASON,
                     observations,
                 )
 
-            request_fp = _tool_request_fingerprint(decision)
-            prior = prior_tool_results.get(request_fp) if request_fp else None
+            if budget is not None and budget.deadline_exceeded():
+                budget.mark_deadline()
+                return _stop_incomplete(
+                    budget.stop_reason or _STEP_BUDGET_REASON,
+                    observations,
+                    code=budget.stop_code,
+                )
 
-            if prior is not None and not _is_retryable_prior(prior):
-                # Same definitive tool+args: do not re-execute; next decide is
-                # terminal-only with constrained schema in the real model request.
-                awaiting_terminal_only = True
-                continue
+            request_fp = _tool_request_fingerprint(decision)
+            tool_name = ""
+            if isinstance(decision, dict):
+                tool_name = str(decision.get("tool") or "")
+            meta = _tool_meta(tool_meta_lookup, tool_name)
+            # Reject unsupported retry_policy early (no silent accept).
+            _validate_retry_policy(meta.get("retry_policy"))
+
+            prior = prior_tool_results.get(request_fp) if request_fp else None
+            if prior is not None:
+                status = prior.get("status")
+                if status == "ok" or (
+                    isinstance(status, str)
+                    and status not in _RETRYABLE_OBSERVATION_STATUSES
+                ):
+                    if not _is_repeatable_success(meta):
+                        awaiting_terminal_only = True
+                        continue
+                elif _is_retryable_prior(prior):
+                    if not _may_retry_error(
+                        budget=budget, fingerprint=request_fp, tool_meta=meta
+                    ):
+                        awaiting_terminal_only = True
+                        continue
+                    if budget is not None and request_fp is not None:
+                        budget.record_retry(request_fp)
 
             if execute_tool is None:
                 return _error("execute_tool", "execute_tool_missing")
             try:
                 observation = execute_tool(decision)
-            except Exception as exc:  # noqa: BLE001 — stage-bounded technical failure
+            except Exception as exc:  # noqa: BLE001
                 return _failure("execute_tool", exc)
+
+            if budget is not None and budget.deadline_exceeded():
+                # Late result is not treated as normal success for continuation.
+                budget.mark_deadline()
+                if isinstance(observation, dict):
+                    late = dict(observation)
+                    late["late_after_deadline"] = True
+                    observations.append(late)
+                else:
+                    observations.append(observation)
+                return _stop_incomplete(
+                    budget.stop_reason or _STEP_BUDGET_REASON,
+                    observations,
+                    code=budget.stop_code,
+                )
 
             observations.append(observation)
             if request_fp is not None:
@@ -259,4 +394,11 @@ def run_agent_loop(
 
         return _error("validate", "unknown_action")
 
+    if budget is not None:
+        budget.mark_steps_exceeded()
+        return _stop_incomplete(
+            budget.stop_reason or _STEP_BUDGET_REASON,
+            observations,
+            code=budget.stop_code,
+        )
     return _stop_incomplete(_STEP_BUDGET_REASON, observations)

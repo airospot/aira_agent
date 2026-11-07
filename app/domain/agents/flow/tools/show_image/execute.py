@@ -31,14 +31,35 @@ def execute_show_image(
     arguments: Any,
     *,
     config: Mapping[str, Any] | None = None,
+    execution_control: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     _ARGUMENTS_VALIDATOR.validate(arguments)
-    result = _show(str(arguments["path"]), config=config)
+    result = _show(
+        str(arguments["path"]),
+        config=config,
+        execution_control=execution_control,
+    )
     _RESULT_VALIDATOR.validate(result)
     return result
 
 
-def _show(path_arg: str, *, config: Mapping[str, Any] | None) -> dict[str, Any]:
+def _show(
+    path_arg: str,
+    *,
+    config: Mapping[str, Any] | None,
+    execution_control: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    from app.domain.agents.flow.tooling.execution_control import (
+        ToolDeadlineExceeded,
+        execution_control_from_mapping,
+    )
+
+    control = execution_control_from_mapping(execution_control)
+    if control is not None:
+        try:
+            control.checkpoint()
+        except ToolDeadlineExceeded:
+            return _result("error", path=path_arg, error="tool_deadline_exceeded")
     root = resolve_corpus_root(config)
     target = resolve_under_corpus(root, path_arg)
     if target is None:
