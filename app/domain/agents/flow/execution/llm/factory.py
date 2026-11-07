@@ -2,24 +2,17 @@
 
 Görev:
     Config sözlüğünden `FlowLlmClient` örneği üretir.
-    Eski `create_ai_sql_client` ve AI SQL servislerine bağımlı değildir.
 
 Input:
-    config — uygulama config mapping (Flask config veya düz dict).
+    config — uygulama config mapping.
     Namespace: KNOWLEDGE_FLOW_LLM_*.
-    API key için OPENAI_API_KEY yedek olarak kullanılabilir.
+    Yerel Ollama: CONTEXT_TOKENS / MAX_OUTPUT_TOKENS / THINK zorunlu (kod fallback yok).
 
 Output:
-    FlowLlmClient (base_url, model, api_key, timeout_seconds).
-
-Kullanım örneği:
-    client = create_flow_llm_client(current_app.config)
-    decision = client.complete_json(system_prompt, user_payload)
+    FlowLlmClient.
 
 Sorumluluk sınırı:
-    Yalnız config → client. Model routing, intent, tool, memory, event,
-    retry/fallback, HTTP transport ve Flask request/session yok.
-    AI_SQL_* runtime fallback yok.
+    Yalnız config → client. Transport client içinde.
 """
 
 from __future__ import annotations
@@ -27,9 +20,9 @@ from __future__ import annotations
 import os
 from typing import Any, Mapping
 
-from .client import FlowLlmClient, FlowLlmClientError
+from .client import FlowLlmClient, FlowLlmClientError, is_ollama_endpoint
 
-# Native Flow varsayılanları (AI_SQL_* okunmaz).
+# Cloud OpenAI defaults only (not used for Ollama-required numeric settings).
 _DEFAULT_BASE_URL = "https://api.openai.com/v1"
 _DEFAULT_MODEL = "gpt-6-luna"
 _DEFAULT_TIMEOUT_SECONDS = 75
@@ -55,16 +48,39 @@ def create_flow_llm_client(config: Mapping[str, Any] | None) -> FlowLlmClient:
         os.environ.get("OPENAI_API_KEY"),
         "",
     )
-    # Öncelik: config → env; hiçbiri yoksa default 75. Geçersiz açık değer sessizce atılmaz.
     timeout_seconds = _timeout_seconds(
         cfg.get("KNOWLEDGE_FLOW_LLM_TIMEOUT_SECONDS"),
         os.environ.get("KNOWLEDGE_FLOW_LLM_TIMEOUT_SECONDS"),
     )
+
+    ollama = is_ollama_endpoint(base_url)
+    context_tokens = _optional_positive_int(
+        "KNOWLEDGE_FLOW_LLM_CONTEXT_TOKENS",
+        cfg.get("KNOWLEDGE_FLOW_LLM_CONTEXT_TOKENS"),
+        os.environ.get("KNOWLEDGE_FLOW_LLM_CONTEXT_TOKENS"),
+        required=ollama,
+    )
+    max_output_tokens = _optional_positive_int(
+        "KNOWLEDGE_FLOW_LLM_MAX_OUTPUT_TOKENS",
+        cfg.get("KNOWLEDGE_FLOW_LLM_MAX_OUTPUT_TOKENS"),
+        os.environ.get("KNOWLEDGE_FLOW_LLM_MAX_OUTPUT_TOKENS"),
+        required=ollama,
+    )
+    think = _optional_bool(
+        "KNOWLEDGE_FLOW_LLM_THINK",
+        cfg.get("KNOWLEDGE_FLOW_LLM_THINK"),
+        os.environ.get("KNOWLEDGE_FLOW_LLM_THINK"),
+        required=ollama,
+    )
+
     return FlowLlmClient(
         base_url=base_url,
         model=model,
         api_key=api_key,
         timeout_seconds=timeout_seconds,
+        context_tokens=context_tokens,
+        max_output_tokens=max_output_tokens,
+        think=think,
     )
 
 
@@ -99,3 +115,64 @@ def _timeout_seconds(*values: Any) -> int:
             )
         return seconds
     return _DEFAULT_TIMEOUT_SECONDS
+
+
+def _optional_positive_int(
+    name: str,
+    *values: Any,
+    required: bool,
+) -> int | None:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text == "":
+            continue
+        try:
+            number = int(text)
+        except (TypeError, ValueError) as exc:
+            raise FlowLlmClientError(
+                f"invalid {name}={value!r}",
+                "provider_unavailable",
+            ) from exc
+        if number <= 0:
+            raise FlowLlmClientError(
+                f"{name} must be positive, got {number}",
+                "provider_unavailable",
+            )
+        return number
+    if required:
+        raise FlowLlmClientError(
+            f"{name} required",
+            "provider_unavailable",
+        )
+    return None
+
+
+def _optional_bool(
+    name: str,
+    *values: Any,
+    required: bool,
+) -> bool | None:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text == "":
+            continue
+        if text in {"1", "true", "yes", "on"}:
+            return True
+        if text in {"0", "false", "no", "off"}:
+            return False
+        raise FlowLlmClientError(
+            f"invalid {name}={value!r} (expected true/false)",
+            "provider_unavailable",
+        )
+    if required:
+        raise FlowLlmClientError(
+            f"{name} required",
+            "provider_unavailable",
+        )
+    return None

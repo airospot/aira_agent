@@ -139,16 +139,18 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - Aşama: A03 (run budgets + bounded context)
 - Başlangıç commit: `2febf5d1cfa16445f1f1c0e6e53f1997531dfe26` (PR #4 head; merge yetkisi bu kayıtta yok)
 - Teslim commit SHA: `af3ffefa6765a197696b080a991fdbf73fe809ff`
+- İnceleme düzeltmesi HEAD: (push sonrası bu kayda yazılır)
 - GitHub dalı ve PR: `codex/agent-a03-run-budgets` — https://github.com/airospot/aira_agent/pull/5 (draft)
+- PR tabanı: PR #4 (`2febf5d` / tenant storage); PR #4 merge yetkisi bu kayıtta yok
 
 - Çalıştırma tarihi ve test profili: 2026-11-07; yerel Linux; fake monotonic clock/client; `NATIVE_FLOW_A00_TEST`
-- Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **128 passed**
+- Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **138 passed** (skip yok)
 - Gerçek PostgreSQL testi: geçti (`NATIVE_FLOW_A00_TEST` URL ile suite; A03 şema migration yok)
 - Gerçek MCP entegrasyon testi: uygulanmaz
-- Gerçek model testi: browser UAT yapıldı (aşağı)
-- İnceleme: **BEKLEMEDE**
-- Manuel UAT sahibi: agent (browser) + proje sahibi onayı
-- Manuel UAT: **KISMİ GEÇTİ** (büyük TXT normal profil LLM hatası ayrı not)
+- Gerçek model testi: inceleme sonrası UAT yapıldı (aşağı)
+- İnceleme: **DÜZELTME TESLİM** (Ollama /api/chat + LLM env + serializer + ToolExecutor tek çağrı)
+- Manuel UAT sahibi: agent + proje sahibi onayı
+- Manuel UAT: **BEKLEMEDE** (agent kanıtı aşağı; sahip onayı ayrı)
 - Uygulanan timeout/bütçe (`.env` / `.env.example`; kodda numeric default yok):
   - `AGENT_MAX_STEPS=8`
   - `AGENT_RUN_TIMEOUT_SECONDS=180` (yalnız runner/agent loop; upload/OCR/DB/HTTP request bütünü değil)
@@ -156,6 +158,11 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
   - `AGENT_MAX_OBSERVATION_BYTES=65536`
   - `AGENT_MAX_CONTEXT_BYTES=131072`
   - `AGENT_MAX_TOOL_RETRIES=1`
+- Yerel LLM (Ollama native; kod fallback yok):
+  - `KNOWLEDGE_FLOW_LLM_CONTEXT_TOKENS=65536`
+  - `KNOWLEDGE_FLOW_LLM_MAX_OUTPUT_TOKENS=2048`
+  - `KNOWLEDGE_FLOW_LLM_THINK=false`
+  - Transport: `/api/chat` + `options.num_ctx` / `num_predict` / `think` ( /v1 `options.num_ctx` kullanılmaz )
 - Otomatik kanıt: max_steps=1 terminal-only; deadline LLM/tool engeli; context/observation UTF-8 byte limit + identity koruma; duplicate history yok; native duplicate/retry/write-no-retry; persist/replay
 - Bilinen sınırlar: urllib timeout kesin wall-clock kill değildir; native sync tool zorla kesilmez; submission_timeout ≠ run deadline
 - Geri alma: branch sil / önceki `2febf5d`; şema migration yok
@@ -175,5 +182,13 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - `04_multilingual_unicode.docx` özet → başlık gerçek ad; `file_name_search`→`file_read`→ANSWER; “bu belgedeki denetim sıklığı?” → 45 gün, belge adı korunur — **PASS**
 - `03_lowres_scan_inside_word.docx` özet → gerçek ad; “bu belgedeki görseli göster” → `show_image` + `/agent/corpus/extracted_data/03_lowres_scan_inside_word/images/img_001.png`; yenilemede oturum korunur — **PASS**
 - Geçici `AGENT_MAX_STEPS=1`: `UAT Büyük Kaynak.txt` → STOP_INCOMPLETE, “Mevcut gözlemlerle terminal karar beklenirken yeniden araç çağrısı yapıldı.”; uydurma özet yok; sonra `.env` `8`’e alındı — **PASS**
-- Büyük TXT normal profil (`MAX_STEPS=8`): decide aşamasında `FlowLlmClientError` (yerel model/transport); kısaltma görünürlüğü bu turda browser’da kanıtlanamadı (unit testte var) — **NOT / KISMİ**
-- Merge/A04: yok
+- Büyük TXT normal profil (`MAX_STEPS=8`): decide aşamasında `FlowLlmClientError` (yerel model/transport); kısaltma görünürlüğü bu turda browser’da kanıtlanamadı (unit testte var) — **NOT / KISMİ** (aşağıdaki inceleme UAT ile güncellendi)
+
+### A03 inceleme düzeltmesi UAT (2026-11-07, agent)
+
+- Kanıt: `qwen3.5:9b` `/api/ps` → `context_length=65536`, `size_vram≈7.29 GiB` (embedding ayrı 8192; global OLLAMA_CONTEXT_LENGTH değiştirilmedi)
+- `UAT_Sentetik_Ctx64K.txt` (~111 KB, CTRL-HEAD/MID/TAIL): `final_status=ANSWER`; üç kod yanıtta; ham `FlowLlmClientError` yok — **PASS**
+- `04_multilingual_unicode.docx` özet + “denetim sıklığı?” → 45 / belge adı — **PASS**
+- `03_lowres_scan_inside_word.docx` + “görseli göster” → `img_001.png` inline — **PASS**
+- Observation truncation meta (`truncated=true`) unit + run_budget alanlarında; sessiz provider truncation yok
+- Merge/A04: yok; PR #4 merge yetkisi yok

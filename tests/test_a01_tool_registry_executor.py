@@ -95,6 +95,21 @@ def test_invalid_arguments_do_not_call_handler() -> None:
     handler.assert_not_called()
 
 
+def test_handler_body_typeerror_is_not_retried() -> None:
+    calls = {"n": 0}
+
+    def flaky(arguments, *, config=None, execution_control=None):
+        calls["n"] += 1
+        raise TypeError("handler internal type error")
+
+    reg = ToolRegistry()
+    reg.register(_make_echo_spec(handler=flaky))
+    ex = ToolExecutor(reg, permitted_names={"test_echo"})
+    with pytest.raises(TypeError, match="handler internal"):
+        ex.execute("test_echo", {"text": "hi"}, execution_control={"deadline_monotonic": 1.0})
+    assert calls["n"] == 1
+
+
 def test_invalid_result_raises_validation_error() -> None:
     def bad_handler(arguments, *, config=None):
         return {"status": "ok", "echo": 123, "error": None}  # echo must be string

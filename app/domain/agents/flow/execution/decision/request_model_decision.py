@@ -87,6 +87,7 @@ def request_model_decision(
         built["system_prompt"],
         built["user_payload"],
         timeout_seconds=http_timeout,
+        max_context_bytes=budget.policy.max_context_bytes,
     )
     if budget.deadline_exceeded():
         budget.mark_deadline()

@@ -50,12 +50,20 @@ class ScriptClient:
         self.timeout_seconds = configured_timeout
         self.last_meta: dict[str, Any] = {}
 
-    def complete_json(self, system_prompt, user_payload, *, timeout_seconds=None):
+    def complete_json(
+        self,
+        system_prompt,
+        user_payload,
+        *,
+        timeout_seconds=None,
+        max_context_bytes=None,
+    ):
         self.calls.append(
             {
                 "system_prompt": system_prompt,
                 "user_payload": user_payload,
                 "timeout_seconds": timeout_seconds,
+                "max_context_bytes": max_context_bytes,
             }
         )
         if not self.script:

@@ -24,6 +24,14 @@ def build_app_config() -> dict[str, Any]:
         "KNOWLEDGE_FLOW_LLM_TIMEOUT_SECONDS": os.environ.get(
             "KNOWLEDGE_FLOW_LLM_TIMEOUT_SECONDS", "120"
         ),
+        # Ollama native settings — no code-side numeric/bool defaults.
+        "KNOWLEDGE_FLOW_LLM_CONTEXT_TOKENS": os.environ.get(
+            "KNOWLEDGE_FLOW_LLM_CONTEXT_TOKENS"
+        ),
+        "KNOWLEDGE_FLOW_LLM_MAX_OUTPUT_TOKENS": os.environ.get(
+            "KNOWLEDGE_FLOW_LLM_MAX_OUTPUT_TOKENS"
+        ),
+        "KNOWLEDGE_FLOW_LLM_THINK": os.environ.get("KNOWLEDGE_FLOW_LLM_THINK"),
         "APP_USER_NAME": None,
         # Must come from environment / overlay — no hardcoded secret.
         "SECRET_KEY": os.environ.get("SECRET_KEY"),

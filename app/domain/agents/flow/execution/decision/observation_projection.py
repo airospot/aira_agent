@@ -6,9 +6,10 @@ payload sent to the model. Identity fields are preserved; content is budgeted.
 
 from __future__ import annotations
 
-import json
 from copy import deepcopy
 from typing import Any, Mapping
+
+from app.domain.agents.flow.execution.decision.json_payload import utf8_json_bytes
 
 _IDENTITY_KEYS = (
     "status",
@@ -31,15 +32,7 @@ _IDENTITY_KEYS = (
 
 
 def _json_bytes(value: Any) -> int:
-    return len(
-        json.dumps(
-            value,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            allow_nan=False,
-            default=str,
-        ).encode("utf-8")
-    )
+    return utf8_json_bytes(value)
 
 
 def _copy_identity(raw: Mapping[str, Any]) -> dict[str, Any]:

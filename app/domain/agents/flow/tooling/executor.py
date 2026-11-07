@@ -117,13 +117,10 @@ class ToolExecutor:
             params = {}
         kwargs: dict[str, Any] = {"config": config}
         if execution_control is not None and (
-            "execution_control" in params or any(
-                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
-            )
+            "execution_control" in params
+            or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
         ):
             kwargs["execution_control"] = execution_control
-        try:
-            return handler(args_copy, **kwargs)
-        except TypeError:
-            # Legacy handlers that only accept (arguments, *, config=).
-            return handler(args_copy, config=config)
+        # Signature-selected kwargs only — never re-invoke on handler TypeError
+        # (that would be an implicit retry and can double side effects).
+        return handler(args_copy, **kwargs)

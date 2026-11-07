@@ -26,12 +26,14 @@ class CaptureClient:
         user_payload: dict[str, Any],
         *,
         timeout_seconds: float | int | None = None,
+        max_context_bytes: int | None = None,
     ):
         self.calls.append(
             {
                 "system_prompt": system_prompt,
                 "user_payload": dict(user_payload),
                 "timeout_seconds": timeout_seconds,
+                "max_context_bytes": max_context_bytes,
             }
         )
         if not self.script:

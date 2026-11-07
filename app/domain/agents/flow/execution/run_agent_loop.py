@@ -10,9 +10,20 @@ from __future__ import annotations
 import json
 from typing import Any, Callable, Mapping
 
+from app.domain.agents.flow.execution.llm.client import FlowLlmClientError
 from app.domain.agents.flow.execution.run_policy import (
     RunBudget,
     stop_incomplete_payload,
+)
+
+_LLM_OUTPUT_LIMIT_REASON = (
+    "Model çıktı limiti doldu; geçerli bir karar JSON'u üretilmedi."
+)
+_LLM_MALFORMED_REASON = (
+    "Model yanıtı geçerli karar JSON'u içermiyor."
+)
+_LLM_CONTEXT_REASON = (
+    "Gönderilecek bağlam bayt limiti aşıldı."
 )
 
 
@@ -287,6 +298,28 @@ def run_agent_loop(
                         code=budget.stop_code or code,
                     )
                 return _stop_incomplete(str(exc), observations, code=code)
+            if isinstance(exc, FlowLlmClientError):
+                llm_code = str(exc.error_class or "")
+                if llm_code == "output_limit":
+                    return _stop_incomplete(
+                        _LLM_OUTPUT_LIMIT_REASON,
+                        observations,
+                        code="output_limit",
+                    )
+                if llm_code == "malformed_model_response":
+                    return _stop_incomplete(
+                        _LLM_MALFORMED_REASON,
+                        observations,
+                        code="malformed_model_response",
+                    )
+                if llm_code == "context_budget_exceeded":
+                    if budget is not None:
+                        budget.mark_context_exceeded()
+                    return _stop_incomplete(
+                        _LLM_CONTEXT_REASON,
+                        observations,
+                        code="context_budget_exceeded",
+                    )
             return _failure("decide", exc)
 
         if budget is not None and budget.deadline_exceeded():

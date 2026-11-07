@@ -6,12 +6,14 @@ silently truncated — overflow → context_budget_exceeded before LLM call.
 
 from __future__ import annotations
 
-import json
 from copy import deepcopy
 from typing import Any, Mapping
 
 from app.domain.agents.flow.execution.decision.agent_system_prompt import (
     AGENT_SYSTEM_PROMPT,
+)
+from app.domain.agents.flow.execution.decision.json_payload import (
+    measure_decision_context_bytes,
 )
 from app.domain.agents.flow.execution.decision.observation_projection import (
     project_observations_for_model,
@@ -32,18 +34,6 @@ class ContextBuildError(RuntimeError):
         super().__init__(message)
         self.code = code
         self.message = message
-
-
-def _utf8_json_bytes(value: Any) -> int:
-    return len(
-        json.dumps(
-            value,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            allow_nan=False,
-            default=str,
-        ).encode("utf-8")
-    )
 
 
 def _system_prompt(*, terminal_only: bool) -> str:
@@ -168,7 +158,7 @@ def build_model_decision_context(
         return user_payload
 
     def _fits(user_payload: dict[str, Any]) -> tuple[bool, int]:
-        total = len(system_prompt.encode("utf-8")) + _utf8_json_bytes(user_payload)
+        total = measure_decision_context_bytes(system_prompt, user_payload)
         return total <= budget.policy.max_context_bytes, total
 
     # Mandatory core without optional background / with tools+schema+request.
