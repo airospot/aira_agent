@@ -139,7 +139,7 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - Aşama: A03 (run budgets + bounded context)
 - Başlangıç commit: `2febf5d1cfa16445f1f1c0e6e53f1997531dfe26` (PR #4 head; merge yetkisi bu kayıtta yok)
 - Teslim commit SHA: `af3ffefa6765a197696b080a991fdbf73fe809ff`
-- GitHub dalı ve PR: `codex/agent-a03-run-budgets` (draft)
+- GitHub dalı ve PR: `codex/agent-a03-run-budgets` — https://github.com/airospot/aira_agent/pull/5 (draft)
 
 - Çalıştırma tarihi ve test profili: 2026-11-07; yerel Linux; fake monotonic clock/client; `NATIVE_FLOW_A00_TEST`
 - Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **128 passed**
