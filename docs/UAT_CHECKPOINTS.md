@@ -99,3 +99,30 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - Gerçek GPU/model: ayrı kanıt (mock değil); inceleme/UAT: **BEKLEMEDE**
 - Backfill komutu sunuldu; onaysız toplu çalıştırılmadı
 - Sonraki: merge/A02 yok — inceleme + kısa manuel UAT bekleniyor
+
+## A01 birleştirme
+
+- Merge SHA (main): `29137b4c62a6cf9af68d808506f9206c05810437`
+- PR: https://github.com/airospot/aira_agent/pull/2
+- Otomatik test (merge öncesi): `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **62 passed**
+
+## A02 teknik kayıt
+
+- Aşama: A02
+- Başlangıç commit: `29137b4c62a6cf9af68d808506f9206c05810437`
+- Teslim commit SHA: `4b8f110fc9dbefccb5ab8e70866b61d7cbd83717`
+- GitHub dalı ve PR: `codex/agent-a02-run-service` — draft PR (URL teslimde)
+- Çalıştırma tarihi ve test profili: 2026-11-07; yerel Linux; `NATIVE_FLOW_A00_TEST` + fake servis testleri
+- Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **72 passed**
+  - Fake/unit: `tests/test_a02_agent_run_service.py`, `tests/test_a02_propose_route_context.py` (Flask context yok / form spoof reddi)
+  - Gerçek PG: `tests/test_pg_migration_and_race.py` aynı suite içinde
+- Gerçek MCP entegrasyon testi: uygulanmaz
+- Gerçek model testi: uygulanmaz (unit/fake runner; harici LLM yok)
+- İnceleme: **BEKLEMEDE**
+- Manuel UAT sahibi: proje sahibi
+- Manuel UAT: **BEKLEMEDE**
+- Beklenen davranış: propose sırası `AgentRunService`; route HTTP/cookie/303; submission tekilliği, replay, kimlik fail-closed, persist recovery, show_image/trace korunur
+- Kısa UAT: yeni konuşma + belge; takip; refresh/geçmiş; new=1 izolasyonu; bilinen görsel
+- Bilinen sınırlar: MCP/skill/Run API/A03 bütçe yok; legacy memory_service yeniden yazılmadı
+- Geri alma: `main` @ `29137b4`; şema değişikliği yok
+- Sonraki aşamaya geçiş talimatı: beklemede (merge/A03 yok)

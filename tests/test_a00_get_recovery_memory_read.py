@@ -100,19 +100,19 @@ def _seed_completed_submission(application, client, *, sub_id: str, answer: str)
 
     with (
         patch(
-            "app.interfaces.web.agent_routes.propose.run_knowledge_agent",
+            "app.domain.agents.run.adapters.run_knowledge_agent",
             side_effect=fake_run,
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.persist_turn",
+            "app.domain.agents.run.adapters.persist_turn",
             side_effect=RuntimeError("persist skipped"),
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.load_flow_conversation",
+            "app.domain.agents.run.adapters.load_flow_conversation",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.list_agent_conversations",
+            "app.domain.agents.run.adapters.list_agent_conversations",
             return_value=[],
         ),
     ):
@@ -153,7 +153,7 @@ def test_get_recovery_survives_transcript_memory_read_error(app_client) -> None:
             return_value=None,
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.run_knowledge_agent",
+            "app.domain.agents.run.adapters.run_knowledge_agent",
             side_effect=AssertionError("LLM must not run on GET"),
         ),
     ):
@@ -203,7 +203,7 @@ def test_get_recovery_survives_conversation_list_memory_read_error(app_client) -
             return_value=None,
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.run_knowledge_agent",
+            "app.domain.agents.run.adapters.run_knowledge_agent",
             side_effect=AssertionError("LLM must not run on GET"),
         ),
     ):
