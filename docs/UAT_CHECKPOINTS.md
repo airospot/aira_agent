@@ -124,7 +124,7 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - Aşama: tenant-document-storage (A03 değil)
 - Başlangıç commit: `10bfa146a90e8ed28bd2fc6a1040305ed9d3f385` (A02 merge)
 - Teslim commit SHA: `98c10eb2e5959945eeb42de41886c0cbcb96328b`
-- GitHub dalı ve PR: `codex/tenant-document-storage` — _(draft PR URL)_
+- GitHub dalı ve PR: `codex/tenant-document-storage` — https://github.com/airospot/aira_agent/pull/4 (draft)
 - Çalıştırma: 2026-11-07; `NATIVE_FLOW_A00_TEST`
 - Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **91 passed**
 - Dizin: `data/tenants/<customer_id>/{uploads,corpus}`; orijinal indirme `/agent/documents/<upload_id>/original`
