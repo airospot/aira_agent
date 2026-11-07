@@ -46,4 +46,6 @@ def build_app_config() -> dict[str, Any]:
         "AGENT_MAX_OBSERVATION_BYTES": os.environ.get("AGENT_MAX_OBSERVATION_BYTES"),
         "AGENT_MAX_CONTEXT_BYTES": os.environ.get("AGENT_MAX_CONTEXT_BYTES"),
         "AGENT_MAX_TOOL_RETRIES": os.environ.get("AGENT_MAX_TOOL_RETRIES"),
+        # A04 skill file read cap — no code-side numeric default.
+        "AGENT_SKILL_MAX_BYTES": os.environ.get("AGENT_SKILL_MAX_BYTES"),
     }

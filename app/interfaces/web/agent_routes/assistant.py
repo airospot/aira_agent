@@ -32,6 +32,8 @@ from app.interfaces.web.agent_routes.submission_store import (
     pop_last_ui_for_session,
 )
 from app.interfaces.web.agent_routes.tenant import tenant_ids
+from app.domain.agents.skills.catalog import STANDARD_SKILL_ID, normalize_skill_id
+from app.domain.agents.skills.errors import SkillError
 
 
 def redirect_assistant(
@@ -40,9 +42,11 @@ def redirect_assistant(
     new: bool = False,
     turn_id: int | str | None = None,
     submission_id: str | None = None,
+    skill_id: str | None = None,
 ):
     """303 See Other — browser refresh becomes GET, not form resubmit."""
     if new:
+        # New conversation always starts in Standart (no skill_id query).
         return redirect(url_for("agent.assistant", new=1), code=303)
     kwargs: dict = {}
     if session_id:
@@ -51,6 +55,13 @@ def redirect_assistant(
         kwargs["turn_id"] = turn_id
     if submission_id and str(submission_id).strip():
         kwargs["submission_id"] = str(submission_id).strip()
+    # Thin skill id only — never skill text/version/digest in cookie or body.
+    sid = str(skill_id or "").strip()
+    if sid and sid != STANDARD_SKILL_ID:
+        try:
+            kwargs["skill_id"] = normalize_skill_id(sid)
+        except SkillError:
+            pass
     if kwargs:
         return redirect(url_for("agent.assistant", **kwargs), code=303)
     return redirect(url_for("agent.assistant"), code=303)
@@ -70,6 +81,7 @@ def render_assistant(
     memory_error: str | None = None,
     submission_id: str | None = None,
     selected_turn_id=None,
+    skill_id: str | None = None,
 ):
     return render_template(
         "assistant.html",
@@ -88,6 +100,7 @@ def render_assistant(
         memory_error=memory_error,
         submission_id=submission_id or mint_submission_id(),
         selected_turn_id=selected_turn_id,
+        skill_id=skill_id or STANDARD_SKILL_ID,
         page_type=AGENT_PAGE_TYPE,
     )
 
@@ -125,6 +138,14 @@ def assistant():
     requested_submission = None
     if not new_conversation:
         requested_submission = (request.args.get("submission_id") or "").strip() or None
+
+    # Form default: allowlisted skill_id query only; new conversation → Standart.
+    form_skill_id = STANDARD_SKILL_ID
+    if not new_conversation:
+        try:
+            form_skill_id = normalize_skill_id(request.args.get("skill_id"))
+        except SkillError:
+            form_skill_id = STANDARD_SKILL_ID
 
     if new_conversation:
         clear_last_ui(session)
@@ -254,4 +275,5 @@ def assistant():
         decision_trace=decision_trace,
         selected_turn_id=selected_turn_id,
         submission_id=mint_submission_id(),
+        skill_id=form_skill_id,
     )

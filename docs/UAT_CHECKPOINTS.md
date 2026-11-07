@@ -192,3 +192,27 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - `03_lowres_scan_inside_word.docx` + “görseli göster” → `img_001.png` inline — **PASS**
 - Observation truncation meta (`truncated=true`) unit + run_budget alanlarında; sessiz provider truncation yok
 - Merge/A04: yok; PR #4 merge yetkisi yok
+
+## A04 teknik kayıt
+
+- Aşama: A04 (document-review application skill)
+- Başlangıç SHA: `63be6a7` (`codex/agent-a03-run-budgets` / PR #5 head)
+- PR tabanı (stacked): A03 henüz main’de değil; PR #4 (`codex/tenant-document-storage`, open) ve PR #5 (`codex/agent-a03-run-budgets`, open) **merge edilmedi** — bu görev onları merge etmez
+- Dal: `codex/agent-a04-document-review-skill` (A03 head’den)
+- Teslim commit SHA: (push sonrası)
+- GitHub PR: (oluşturulunca)
+
+- Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **155 passed** (skip yok)
+- Gerçek PostgreSQL: suite `NATIVE_FLOW_A00_TEST` ile geçti; A04 DB migration yok
+- Gerçek model / browser: **BEKLEMEDE** (aşağıdaki kısa UAT sahip onayı)
+- Manuel UAT: **BEKLEMEDE**
+- `AGENT_SKILL_MAX_BYTES=65536` (`.env` / `.env.example`; kod fallback yok)
+- Merge / A05: yok
+
+### A04 kısa UAT (kullanıcı)
+
+1. Gerekirse frontend’den mevcut `uat-guide.md` yükle. Yeni konuşma → **Belge inceleme** → “uat-guide.md belgesini incele; özeti, eksik bilgileri ve kaynaklarını ver.”
+2. Beklenen: TRY/kurallar doğru; teslimat tarihi yoksa uydurulmaz; örnek kalemler gerçek DB diye sunulmaz. Trace’te skill id/version/digest + effective tools; tool çağrıları görünür.
+3. Aynı modda “Bu belgenin teslimat tarihi nedir?” → tarih uydurulmaz; takip doğru belgeye bağlanır.
+4. **Standart** ile aynı belgeyi özetle → temel mod çalışır; yeni run trace’inde skill uygulanmış gibi görünmez.
+5. **Belge inceleme** + `03_lowres_scan_inside_word.docx` incele → görsel iste → gerçek ad/doğru görsel. Yeni konuşma → Standart varsayılan.

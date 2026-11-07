@@ -78,6 +78,9 @@ class SubmissionPort(Protocol):
         request_text: str,
         new_conversation: bool,
         explicit_session_id: str | None,
+        skill_id: str | None = None,
+        skill_version: str | None = None,
+        skill_digest: str | None = None,
     ) -> str: ...
 
     def try_begin_processing(
@@ -99,6 +102,9 @@ class SubmissionPort(Protocol):
         request_text: str,
         new_conversation: bool,
         canonical_session_id: str | None,
+        skill_id: str | None = None,
+        skill_version: str | None = None,
+        skill_digest: str | None = None,
     ) -> bool: ...
 
     def is_processing_timed_out(
@@ -150,7 +156,30 @@ def pack_decision_trace(result: dict) -> dict | None:
             )
             if key in run_budget
         }
+    skill = result.get("skill")
+    if isinstance(skill, dict):
+        # id/version/digest + effective tool names only — never full skill text.
+        packed["skill"] = {
+            key: skill.get(key)
+            for key in ("id", "version", "digest", "effective_tools")
+            if key in skill
+        }
     return packed
+
+
+def _skill_hash_fields(ctx: ExecutionContext) -> dict[str, str | None]:
+    snap = ctx.skill_snapshot
+    if snap is None:
+        return {
+            "skill_id": None,
+            "skill_version": None,
+            "skill_digest": None,
+        }
+    return {
+        "skill_id": snap.skill_id,
+        "skill_version": snap.version,
+        "skill_digest": snap.content_digest,
+    }
 
 
 
@@ -310,10 +339,12 @@ class AgentRunService:
                 payload=payload,
             )
 
+        skill_hash = _skill_hash_fields(ctx)
         request_hash = self._submissions.hash_for_reservation(
             request_text=request_text,
             new_conversation=new_conversation,
             explicit_session_id=explicit_session_id,
+            **skill_hash,
         )
         owned = self._submissions.try_begin_processing(
             customer_id=customer_id,
@@ -400,13 +431,14 @@ class AgentRunService:
             request_text=request_text,
             new_conversation=new_conversation,
             canonical_session_id=canonical_session_id,
+            **_skill_hash_fields(ctx),
         ):
             return RunOutcome(
                 kind="scope_mismatch",
                 submission_id=submission_id,
                 error="submission_scope_mismatch",
                 message=(
-                    "Aynı submission_id farklı soru/konuşma ile yeniden "
+                    "Aynı submission_id farklı soru/konuşma/skill ile yeniden "
                     "kullanılamaz. Yeni gönderim kimliği kullanın."
                 ),
             )
@@ -503,6 +535,7 @@ class AgentRunService:
                 on_event=on_event,
                 permitted_tool_names=ctx.permitted_tool_names,
                 run_policy=ctx.run_policy,
+                skill_snapshot=ctx.skill_snapshot,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("agent_flow_crashed")

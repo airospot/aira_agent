@@ -12,6 +12,7 @@ from app.domain.agents.flow.execution.run_policy import (
     parse_run_policy,
     run_policy_config_overlay,
 )
+from app.domain.agents.skills.snapshot import SkillSnapshot
 
 
 # Matches DB VARCHAR(64): first char + up to 63 more → max 64 total.
@@ -66,6 +67,7 @@ class ExecutionContext:
     submission_timeout_seconds: int
     runner_config: Mapping[str, Any] = field(default_factory=dict)
     run_policy: RunPolicy | None = None
+    skill_snapshot: SkillSnapshot | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -111,6 +113,8 @@ class RunRequest:
     explicit_session_id: str | None = None
     new_conversation: bool = False
     agent_session_id_hint: str | None = None
+    # Allowlisted skill id only; version/tools/body never from client.
+    skill_id: str | None = None
 
 
 @dataclass(frozen=True)

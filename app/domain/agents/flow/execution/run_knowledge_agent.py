@@ -38,6 +38,7 @@ from app.domain.agents.flow.tooling import (
     build_native_tool_registry,
 )
 from app.domain.agents.flow.tooling.native_bootstrap import NATIVE_TOOL_NAMES
+from app.domain.agents.skills.snapshot import SkillSnapshot
 
 _FILE_READ_ARG_KEYS = ("path",)
 _FILE_SEARCH_ARG_KEYS = ("query", "glob", "limit")
@@ -57,6 +58,7 @@ def run_knowledge_agent(
     permitted_tool_names: set[str] | frozenset[str] | None = None,
     run_policy: RunPolicy | None = None,
     clock: Callable[[], float] | None = None,
+    skill_snapshot: SkillSnapshot | None = None,
 ) -> dict[str, Any]:
     """Run one agent turn with corpus file tools via shared registry/executor."""
     del dataset_dir, caller_context  # legacy kwargs ignored
@@ -69,6 +71,7 @@ def run_knowledge_agent(
         permitted = frozenset(NATIVE_TOOL_NAMES)
     else:
         permitted = frozenset(str(n).strip() for n in permitted_tool_names if str(n).strip())
+    # Catalog for the model must match executor permission (skill intersection).
     executor = ToolExecutor(registry, permitted_names=permitted)
 
     permitted_tools = registry.catalog(names=permitted)
@@ -145,6 +148,7 @@ def run_knowledge_agent(
                 permitted_tools=permitted_tools,
                 decision_constraints=decision_constraints,
                 budget=budget,
+                skill_snapshot=skill_snapshot,
             )
         except Exception as exc:  # noqa: BLE001
             _emit("error", status=type(exc).__name__, duration_ms=_duration_ms(started))
@@ -295,6 +299,10 @@ def run_knowledge_agent(
     out["decision_trace_final_status"] = str(status) if status is not None else None
     out["decision_trace_final_action"] = action
     out["run_budget"] = budget.as_trace_metadata()
+    if skill_snapshot is not None:
+        meta = skill_snapshot.public_meta()
+        meta["effective_tools"] = sorted(permitted)
+        out["skill"] = meta
     return out
 
 

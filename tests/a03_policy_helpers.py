@@ -14,6 +14,8 @@ from app.domain.agents.flow.execution.run_policy import (
 def recommended_policy_config(**overrides: Any) -> dict[str, Any]:
     """Copy documented recommended env values for unit tests."""
     cfg = dict(RECOMMENDED_RUN_POLICY)
+    # A04 skill loader cap for tests that bind document-review.
+    cfg.setdefault("AGENT_SKILL_MAX_BYTES", 65536)
     cfg.update(overrides)
     return cfg
 

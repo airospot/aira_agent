@@ -120,6 +120,7 @@ def build_model_decision_context(
     budget: RunBudget,
     permitted_tools: Any = None,
     decision_constraints: Any = None,
+    skill_snapshot: Any = None,
 ) -> dict[str, Any]:
     """Return {system_prompt, user_payload, meta} within budget or raise."""
     terminal_only = bool(
@@ -128,6 +129,9 @@ def build_model_decision_context(
     )
     schema = decision_schema(terminal_only=terminal_only)
     system_prompt = _system_prompt(terminal_only=terminal_only)
+    # Skill task instructions are mandatory — never trimmed like optional history.
+    if skill_snapshot is not None:
+        system_prompt = system_prompt + "\n\n" + skill_snapshot.prompt_block()
 
     projected, obs_meta = project_observations_for_model(
         observations,

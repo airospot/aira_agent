@@ -19,12 +19,21 @@ def hash_request(
     request_text: str,
     session_id: str | None,
     new_conversation: bool,
+    skill_id: str | None = None,
+    skill_version: str | None = None,
+    skill_digest: str | None = None,
 ) -> str:
-    payload = {
+    payload: dict[str, Any] = {
         "request_text": str(request_text or "").strip(),
         "session_id": str(session_id or "").strip() or None,
         "new_conversation": bool(new_conversation),
     }
+    # Standard / absent skill omits keys → preserves pre-A04 hash bytes.
+    sid = str(skill_id or "").strip()
+    if sid and sid != "standard":
+        payload["skill_id"] = sid
+        payload["skill_version"] = str(skill_version or "").strip() or None
+        payload["skill_digest"] = str(skill_digest or "").strip() or None
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -34,6 +43,9 @@ def hash_for_reservation(
     request_text: str,
     new_conversation: bool,
     explicit_session_id: str | None,
+    skill_id: str | None = None,
+    skill_version: str | None = None,
+    skill_digest: str | None = None,
 ) -> str:
     """Hash used when creating a reservation.
 
@@ -47,11 +59,17 @@ def hash_for_reservation(
             request_text=request_text,
             session_id=None,
             new_conversation=new_conversation,
+            skill_id=skill_id,
+            skill_version=skill_version,
+            skill_digest=skill_digest,
         )
     return hash_request(
         request_text=request_text,
         session_id=explicit,
         new_conversation=new_conversation,
+        skill_id=skill_id,
+        skill_version=skill_version,
+        skill_digest=skill_digest,
     )
 
 
@@ -61,6 +79,9 @@ def hash_matches_stored(
     request_text: str,
     new_conversation: bool,
     canonical_session_id: str | None,
+    skill_id: str | None = None,
+    skill_version: str | None = None,
+    skill_digest: str | None = None,
 ) -> bool:
     """True if request matches the reserved hash (unscoped or canonical-scoped)."""
     stored = str(stored_hash or "").strip()
@@ -70,6 +91,9 @@ def hash_matches_stored(
         request_text=request_text,
         session_id=None,
         new_conversation=new_conversation,
+        skill_id=skill_id,
+        skill_version=skill_version,
+        skill_digest=skill_digest,
     )
     if stored == unscoped:
         return True
@@ -79,6 +103,9 @@ def hash_matches_stored(
             request_text=request_text,
             session_id=canonical,
             new_conversation=new_conversation,
+            skill_id=skill_id,
+            skill_version=skill_version,
+            skill_digest=skill_digest,
         )
         if stored == scoped:
             return True
