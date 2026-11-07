@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
+
+
+_SUBMISSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
 def _positive_int(value: Any, *, field_name: str) -> int:
@@ -15,6 +19,33 @@ def _positive_int(value: Any, *, field_name: str) -> int:
             raise ValueError(f"{field_name} must be a positive int")
         return value
     raise ValueError(f"{field_name} must be a positive int")
+
+
+def normalize_submission_id(raw: Any) -> str:
+    """Single validation point for submission ids (trim; reject empty/invalid)."""
+    text = str(raw if raw is not None else "").strip()
+    if not text:
+        raise ValueError("submission_id is required")
+    if any(ch.isspace() for ch in text):
+        raise ValueError("submission_id is invalid")
+    if not _SUBMISSION_ID_RE.fullmatch(text):
+        raise ValueError("submission_id is invalid")
+    return text
+
+
+def _snapshot_runner_config(
+    raw: Mapping[str, Any] | None, *, corpus_root: str
+) -> dict[str, Any]:
+    """Independent config copy; AGENT_CORPUS_DIR always matches verified corpus_root."""
+    if raw is None:
+        snap: dict[str, Any] = {}
+    else:
+        try:
+            snap = dict(raw)
+        except Exception:  # noqa: BLE001
+            snap = {str(k): raw[k] for k in raw}  # type: ignore[index]
+    snap["AGENT_CORPUS_DIR"] = corpus_root
+    return snap
 
 
 @dataclass(frozen=True)
@@ -38,7 +69,8 @@ class ExecutionContext:
         root = str(self.corpus_root or "").strip()
         if not root:
             raise ValueError("corpus_root is required")
-        object.__setattr__(self, "corpus_root", str(Path(root)))
+        root = str(Path(root))
+        object.__setattr__(self, "corpus_root", root)
         names = frozenset(
             str(n).strip() for n in (self.permitted_tool_names or ()) if str(n).strip()
         )
@@ -50,6 +82,11 @@ class ExecutionContext:
         if timeout < 1:
             raise ValueError("submission_timeout_seconds must be >= 1")
         object.__setattr__(self, "submission_timeout_seconds", timeout)
+        object.__setattr__(
+            self,
+            "runner_config",
+            _snapshot_runner_config(self.runner_config, corpus_root=root),
+        )
 
 
 @dataclass(frozen=True)
@@ -73,6 +110,5 @@ class RunOutcome:
     turn_id: int | str | None = None
     payload: Mapping[str, Any] = field(default_factory=dict)
     agent_session_id: str | None = None
-    http_status: int | None = None
     error: str | None = None
     message: str | None = None

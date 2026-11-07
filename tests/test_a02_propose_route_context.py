@@ -11,6 +11,15 @@ from tests.conftest import load_app_py
 
 @pytest.fixture
 def app_client(monkeypatch):
+    # Fixture owns required env — mock service path does not need a live DB.
+    import os
+
+    db = (
+        os.environ.get("A00_TEST_DATABASE_URL")
+        or os.environ.get("DATABASE_URL")
+        or "postgresql://native:native@127.0.0.1:5432/NATIVE_FLOW_A00_TEST"
+    )
+    monkeypatch.setenv("DATABASE_URL", db)
     monkeypatch.setenv("AUTH_DISABLED", "1")
     monkeypatch.setenv("AUTH_BYPASS_USER_ID", "7")
     monkeypatch.setenv("AUTH_BYPASS_CUSTOMER_ID", "9")
@@ -41,7 +50,6 @@ def test_form_customer_user_cannot_override_execution_context(app_client):
             "replayed": False,
         }
         agent_session_id = "s1"
-        http_status = None
         error = None
         message = None
 
@@ -50,6 +58,7 @@ def test_form_customer_user_cannot_override_execution_context(app_client):
             captured["customer_id"] = ctx.customer_id
             captured["user_id"] = ctx.user_id
             captured["permitted"] = set(ctx.permitted_tool_names)
+            captured["corpus"] = ctx.runner_config.get("AGENT_CORPUS_DIR")
             return FakeOutcome()
 
     with patch(
@@ -71,3 +80,34 @@ def test_form_customer_user_cannot_override_execution_context(app_client):
     assert captured["customer_id"] == 9
     assert captured["user_id"] == 7
     assert "evil_tool" not in captured["permitted"]
+
+
+def test_route_maps_outcome_kind_to_http_400(app_client):
+    _app, client = app_client
+
+    class FakeOutcome:
+        kind = "scope_mismatch"
+        submission_id = "sub-y"
+        session_id = None
+        turn_id = None
+        payload = {}
+        agent_session_id = None
+        error = "submission_scope_mismatch"
+        message = "scope"
+
+    class FakeService:
+        def run(self, ctx, req):
+            return FakeOutcome()
+
+    with patch(
+        "app.interfaces.web.agent_routes.propose.create_agent_run_service",
+        return_value=FakeService(),
+    ):
+        resp = client.post(
+            "/agent/assistant/propose",
+            data={"request_text": "x", "submission_id": "sub-y"},
+            follow_redirects=False,
+        )
+    assert resp.status_code == 400
+    body = resp.get_json()
+    assert body["error"] == "submission_scope_mismatch"

@@ -18,6 +18,15 @@ from app.interfaces.web.agent_routes.submission_store import (
 )
 from app.interfaces.web.agent_routes.tenant import tenant_ids
 
+# HTTP mapping lives in the route — service outcomes stay transport-free.
+_HTTP_ERROR_BY_KIND = frozenset(
+    {
+        "session_mismatch",
+        "scope_mismatch",
+        "invalid_submission_id",
+    }
+)
+
 
 @agent_bp.post("/assistant/propose")
 @require_tenant
@@ -25,9 +34,12 @@ from app.interfaces.web.agent_routes.tenant import tenant_ids
 def assistant_propose():
     """Run agent at most once per scoped submission; persist; 303 → GET."""
     request_text = (request.form.get("request_text") or "").strip()
-    submission_id = (
-        (request.form.get("submission_id") or "").strip() or mint_submission_id()
-    )
+    raw_submission = request.form.get("submission_id")
+    # Empty → mint; non-empty (incl. padded) → service normalizes/validates once.
+    if raw_submission is None or str(raw_submission).strip() == "":
+        submission_id = mint_submission_id()
+    else:
+        submission_id = str(raw_submission)
     customer_id, user_id = tenant_ids()
 
     if not customer_id or not user_id:
@@ -71,12 +83,12 @@ def assistant_propose():
     if outcome.agent_session_id:
         session["agent_session_id"] = outcome.agent_session_id
 
-    if outcome.http_status == 400:
+    if outcome.kind in _HTTP_ERROR_BY_KIND:
         return (
             jsonify(
                 {
                     "ok": False,
-                    "error": outcome.error,
+                    "error": outcome.error or outcome.kind,
                     "message": outcome.message,
                 }
             ),

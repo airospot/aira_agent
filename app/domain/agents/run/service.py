@@ -11,7 +11,12 @@ from app.domain.agents.flow.memory import (
     MemoryReadError,
     SessionIdentityError,
 )
-from app.domain.agents.run.contracts import ExecutionContext, RunOutcome, RunRequest
+from app.domain.agents.run.contracts import (
+    ExecutionContext,
+    RunOutcome,
+    RunRequest,
+    normalize_submission_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +152,15 @@ class AgentRunService:
     def run(self, ctx: ExecutionContext, req: RunRequest) -> RunOutcome:
         customer_id = ctx.customer_id
         user_id = ctx.user_id
-        submission_id = str(req.submission_id or "").strip()
+        try:
+            submission_id = normalize_submission_id(req.submission_id)
+        except ValueError:
+            return RunOutcome(
+                kind="invalid_submission_id",
+                submission_id=str(req.submission_id or "").strip(),
+                error="invalid_submission_id",
+                message="Geçersiz veya boş submission_id; rezervasyon açılmadı.",
+            )
         request_text = str(req.request_text or "").strip()
         new_conversation = bool(req.new_conversation)
         explicit_session_id = str(req.explicit_session_id or "").strip() or None
@@ -172,7 +185,6 @@ class AgentRunService:
             return RunOutcome(
                 kind="session_mismatch",
                 submission_id=submission_id,
-                http_status=400,
                 error="submission_session_mismatch",
                 message=(
                     "Bu submission başka bir konuşmaya bağlı. "
@@ -295,7 +307,7 @@ class AgentRunService:
         if not owned:
             return self._handle_non_owner(
                 ctx=ctx,
-                req=req,
+                submission_id=submission_id,
                 session_id=session_id,
                 explicit_session_id=explicit_session_id,
                 new_conversation=new_conversation,
@@ -305,7 +317,7 @@ class AgentRunService:
 
         return self._run_owned(
             ctx=ctx,
-            req=req,
+            submission_id=submission_id,
             session_id=session_id,
             conversation=conversation,
             past=past,
@@ -316,14 +328,13 @@ class AgentRunService:
         self,
         *,
         ctx: ExecutionContext,
-        req: RunRequest,
+        submission_id: str,
         session_id: str,
         explicit_session_id: str | None,
         new_conversation: bool,
         request_text: str,
         hint: str | None,
     ) -> RunOutcome:
-        submission_id = req.submission_id
         customer_id = ctx.customer_id
         user_id = ctx.user_id
         existing = self._submissions.get_submission(
@@ -356,7 +367,6 @@ class AgentRunService:
             return RunOutcome(
                 kind="session_mismatch",
                 submission_id=submission_id,
-                http_status=400,
                 error="submission_session_mismatch",
                 message=(
                     "Bu submission başka bir konuşmaya bağlı. "
@@ -373,7 +383,6 @@ class AgentRunService:
             return RunOutcome(
                 kind="scope_mismatch",
                 submission_id=submission_id,
-                http_status=400,
                 error="submission_scope_mismatch",
                 message=(
                     "Aynı submission_id farklı soru/konuşma ile yeniden "
@@ -450,13 +459,12 @@ class AgentRunService:
         self,
         *,
         ctx: ExecutionContext,
-        req: RunRequest,
+        submission_id: str,
         session_id: str,
         conversation: Any,
         past: list,
         request_text: str,
     ) -> RunOutcome:
-        submission_id = req.submission_id
         customer_id = ctx.customer_id
         user_id = ctx.user_id
         memory_error = None
@@ -466,10 +474,11 @@ class AgentRunService:
             flow_events.append(self._sanitize_event(payload_event))
 
         try:
+            # runner_config is already an independent snapshot with verified corpus root
             result = self._runner(
                 request_text,
                 conversation=conversation,
-                config=dict(ctx.runner_config),
+                config=ctx.runner_config,
                 on_event=on_event,
                 permitted_tool_names=ctx.permitted_tool_names,
             )
