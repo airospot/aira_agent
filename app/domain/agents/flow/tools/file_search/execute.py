@@ -13,6 +13,7 @@ from app.shared.corpus_path_sandbox import (
     is_resolved_under_corpus,
     resolve_corpus_root,
 )
+from app.shared.document_source_identity import resolve_document_source
 
 _DIR = Path(__file__).resolve().parent
 _ARGUMENTS_SCHEMA = json.loads((_DIR / "tool.json").read_text(encoding="utf-8"))["arguments"]
@@ -52,6 +53,7 @@ def _search(arguments: Mapping[str, Any], *, config: Mapping[str, Any] | None) -
     root = resolve_corpus_root(config)
     needle = query.lower()
     hits: list[dict[str, Any]] = []
+    identity_cache: dict[str, Mapping[str, Any]] = {}
     try:
         paths = sorted(p for p in root.glob(pattern) if p.is_file())
     except ValueError:
@@ -69,7 +71,7 @@ def _search(arguments: Mapping[str, Any], *, config: Mapping[str, Any] | None) -
         if not is_resolved_under_corpus(root, path):
             continue
         try:
-            rel = str(path.relative_to(root))
+            rel = path.relative_to(root).as_posix()
         except ValueError:
             continue
         try:
@@ -83,16 +85,25 @@ def _search(arguments: Mapping[str, Any], *, config: Mapping[str, Any] | None) -
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        if rel not in identity_cache:
+            identity_cache[rel] = resolve_document_source(root, rel).as_tool_fields()
+        identity = identity_cache[rel]
         for idx, line in enumerate(text.splitlines(), start=1):
             if needle not in line.lower():
                 continue
-            hits.append(
-                {
-                    "path": rel,
-                    "line": idx,
-                    "snippet": line.strip()[:240],
-                }
-            )
+            entry: dict[str, Any] = {
+                "path": rel,
+                "line": idx,
+                "snippet": line.strip()[:240],
+                "source_filename": identity.get("source_filename"),
+                "display_name": identity.get("display_name") or "orijinal adı bilinmiyor",
+                "source_known": bool(identity.get("source_known")),
+                "source_ambiguous": bool(identity.get("source_ambiguous")),
+            }
+            alts = identity.get("alternate_source_filenames")
+            if isinstance(alts, list) and alts:
+                entry["alternate_source_filenames"] = list(alts)
+            hits.append(entry)
             if len(hits) >= limit:
                 return {
                     "status": "ok",

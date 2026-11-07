@@ -170,10 +170,18 @@
         .then(function (result) {
           if (!uploadStatus) return;
           if (result.ok && result.data && result.data.ok) {
-            uploadStatus.textContent = result.data.message || (result.data.path + " yüklendi");
+            var displayName =
+              result.data.source_filename ||
+              result.data.display_name ||
+              (file && file.name) ||
+              "Belge";
+            uploadStatus.textContent =
+              result.data.message || (displayName + " yüklendi");
             var ta = document.getElementById("ai-request-text");
             if (ta && !ta.value.trim()) {
-              ta.value = result.data.path + " dosyasını oku ve özetle";
+              ta.value =
+                result.data.suggest_prompt ||
+                (displayName + " dosyasını oku ve özetle");
             }
           } else {
             var err = (result.data && result.data.error) || "upload_failed";

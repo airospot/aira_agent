@@ -1,4 +1,4 @@
-"""Serve sandbox corpus images under /agent/corpus/<path>."""
+"""Serve sandbox corpus images under /agent/corpus/<path> (tenant-scoped)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,10 @@ from flask import current_app, send_file
 
 from app.core.security import require_tenant, role_required
 from app.interfaces.web.agent_routes.blueprint import agent_bp
-from app.shared.corpus_path_sandbox import resolve_corpus_root, resolve_under_corpus
+from app.interfaces.web.agent_routes.http_cache import apply_sensitive_file_headers
+from app.interfaces.web.agent_routes.tenant import tenant_ids
+from app.shared.corpus_path_sandbox import resolve_under_corpus
+from app.shared.tenant_storage import TenantStorageError, resolve_tenant_storage
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
 _MAX_IMAGE_BYTES = 5_000_000
@@ -18,8 +21,16 @@ _MAX_IMAGE_BYTES = 5_000_000
 @require_tenant
 @role_required(["Admin", "Super Admin"])
 def corpus_media(relpath: str):
-    """Return a corpus image file if path stays inside AGENT_CORPUS_DIR."""
-    root = resolve_corpus_root(current_app.config)
+    """Return a corpus image if path stays inside the verified tenant corpus."""
+    customer_id, _user_id = tenant_ids()
+    if not customer_id:
+        return ("Forbidden", 403)
+    try:
+        storage = resolve_tenant_storage(customer_id, current_app.config)
+    except TenantStorageError:
+        return ("Forbidden", 403)
+
+    root = storage.corpus_root
     target = resolve_under_corpus(root, relpath)
     if target is None or not target.is_file():
         return ("Not found", 404)
@@ -45,4 +56,5 @@ def corpus_media(relpath: str):
         }.get(target.suffix.lower())
     if not mime or not mime.startswith("image/"):
         return ("Unsupported media type", 415)
-    return send_file(target, mimetype=mime, conditional=True, max_age=3600)
+    response = send_file(target, mimetype=mime, conditional=True, max_age=0)
+    return apply_sensitive_file_headers(response)

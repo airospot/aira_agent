@@ -4,7 +4,18 @@
   "title": "show_image result",
   "type": "object",
   "additionalProperties": false,
-  "required": ["status", "path", "display_url", "mime", "byte_size", "error"],
+  "required": [
+    "status",
+    "path",
+    "display_url",
+    "mime",
+    "byte_size",
+    "error",
+    "source_filename",
+    "display_name",
+    "source_known",
+    "source_ambiguous"
+  ],
   "properties": {
     "status": {
       "type": "string",
@@ -14,6 +25,14 @@
     "display_url": { "type": ["string", "null"] },
     "mime": { "type": ["string", "null"] },
     "byte_size": { "type": ["integer", "null"], "minimum": 0 },
-    "error": { "type": ["string", "null"] }
+    "error": { "type": ["string", "null"] },
+    "source_filename": { "type": ["string", "null"] },
+    "display_name": { "type": ["string", "null"] },
+    "source_known": { "type": "boolean" },
+    "source_ambiguous": { "type": "boolean" },
+    "alternate_source_filenames": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
   }
 }
