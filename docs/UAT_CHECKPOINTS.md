@@ -112,18 +112,83 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - Başlangıç commit: `29137b4c62a6cf9af68d808506f9206c05810437`
 - Teslim commit SHA: `72c465c03b5b65cb81bbeaa7daf907e0c88f099c`
 - İnceleme düzeltmesi SHA: `53c212cf3cd5ecbd723b7f4b30654839e6a5f502`
-- GitHub dalı ve PR: `codex/agent-a02-run-service` — https://github.com/airospot/aira_agent/pull/3 (draft)
+- GitHub dalı ve PR: `codex/agent-a02-run-service` — https://github.com/airospot/aira_agent/pull/3
+- Merge SHA (main): `10bfa146a90e8ed28bd2fc6a1040305ed9d3f385`
 - Çalıştırma tarihi ve test profili: 2026-11-07; yerel Linux; `NATIVE_FLOW_A00_TEST` + fake servis testleri
-- Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **78 passed**
-  - Fake/unit: `tests/test_a02_agent_run_service.py`, `tests/test_a02_propose_route_context.py` (snapshot corpus, normalize submission_id VARCHAR(64), form spoof, kind→400)
-  - Gerçek PG: `tests/test_pg_migration_and_race.py` aynı suite içinde
-- Gerçek MCP entegrasyon testi: uygulanmaz
-- Gerçek model testi: uygulanmaz (unit/fake runner; harici LLM yok)
+- Otomatik test (merge öncesi): `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **80 passed**
+- Manuel UAT: **KABUL** (PNG isim arama + show_image)
+- İnceleme: tamamlandı (merge)
+
+## Tenant document storage teknik kayıt
+
+- Aşama: tenant-document-storage (A03 değil)
+- Başlangıç commit: `10bfa146a90e8ed28bd2fc6a1040305ed9d3f385` (A02 merge)
+- Teslim commit SHA: `98c10eb2e5959945eeb42de41886c0cbcb96328b`
+- GitHub dalı ve PR: `codex/tenant-document-storage` — https://github.com/airospot/aira_agent/pull/4 (draft)
+- Çalıştırma: 2026-11-07; `NATIVE_FLOW_A00_TEST`
+- Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **91 passed**
+- Dizin: `data/tenants/<customer_id>/{uploads,corpus}`; orijinal indirme `/agent/documents/<upload_id>/original`
+- Gerçek eski veri migration: **uygulanmadı** (script dry-run varsayılan; `--apply` bu teslimde çalıştırılmadı)
 - İnceleme: **BEKLEMEDE**
-- Manuel UAT sahibi: proje sahibi
 - Manuel UAT: **BEKLEMEDE**
-- Beklenen davranış: propose sırası `AgentRunService`; route HTTP/cookie/303 (`outcome.kind`); `runner_config` bağımsız snapshot + `AGENT_CORPUS_DIR=corpus_root`; submission_id tek noktada normalize (max 64, DB ile uyumlu); boş/geçersiz/65+/128 ID rezervasyonsuz red
-- Kısa UAT: yeni konuşma + belge; takip; refresh/geçmiş; new=1 izolasyonu; bilinen görsel
-- Bilinen sınırlar: MCP/skill/Run API/A03 bütçe yok; legacy memory_service yeniden yazılmadı
-- Geri alma: `main` @ `29137b4`; şema değişikliği yok
-- Sonraki aşamaya geçiş talimatı: beklemede (merge/A03 yok)
+- Kısa UAT: DOCX+TXT yükle → orijinal indir → çıkarımı sor/görsel göster → ayrı tenant’ta arama/URL erişilemez → profili geri al
+- Merge / A03: yok
+
+## A03 teknik kayıt
+
+- Aşama: A03 (run budgets + bounded context)
+- Başlangıç commit: `2febf5d1cfa16445f1f1c0e6e53f1997531dfe26` (PR #4 head; merge yetkisi bu kayıtta yok)
+- Teslim commit SHA: `af3ffefa6765a197696b080a991fdbf73fe809ff`
+- İnceleme düzeltmesi HEAD: `496686a`
+- GitHub dalı ve PR: `codex/agent-a03-run-budgets` — https://github.com/airospot/aira_agent/pull/5 (draft)
+- PR tabanı: PR #4 (`2febf5d` / tenant storage); PR #4 merge yetkisi bu kayıtta yok
+
+- Çalıştırma tarihi ve test profili: 2026-11-07; yerel Linux; fake monotonic clock/client; `NATIVE_FLOW_A00_TEST`
+- Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **138 passed** (skip yok)
+- Gerçek PostgreSQL testi: geçti (`NATIVE_FLOW_A00_TEST` URL ile suite; A03 şema migration yok)
+- Gerçek MCP entegrasyon testi: uygulanmaz
+- Gerçek model testi: inceleme sonrası UAT yapıldı (aşağı)
+- İnceleme: **DÜZELTME TESLİM** (Ollama /api/chat + LLM env + serializer + ToolExecutor tek çağrı)
+- Manuel UAT sahibi: agent + proje sahibi onayı
+- Manuel UAT: **BEKLEMEDE** (agent kanıtı aşağı; sahip onayı ayrı)
+- Uygulanan timeout/bütçe (`.env` / `.env.example`; kodda numeric default yok):
+  - `AGENT_MAX_STEPS=8`
+  - `AGENT_RUN_TIMEOUT_SECONDS=180` (yalnız runner/agent loop; upload/OCR/DB/HTTP request bütünü değil)
+  - `AGENT_TOOL_TIMEOUT_SECONDS=15` (cooperative native slice)
+  - `AGENT_MAX_OBSERVATION_BYTES=65536`
+  - `AGENT_MAX_CONTEXT_BYTES=131072`
+  - `AGENT_MAX_TOOL_RETRIES=1`
+- Yerel LLM (Ollama native; kod fallback yok):
+  - `KNOWLEDGE_FLOW_LLM_CONTEXT_TOKENS=65536`
+  - `KNOWLEDGE_FLOW_LLM_MAX_OUTPUT_TOKENS=2048`
+  - `KNOWLEDGE_FLOW_LLM_THINK=false`
+  - Transport: `/api/chat` + `options.num_ctx` / `num_predict` / `think` ( /v1 `options.num_ctx` kullanılmaz )
+- Otomatik kanıt: max_steps=1 terminal-only; deadline LLM/tool engeli; context/observation UTF-8 byte limit + identity koruma; duplicate history yok; native duplicate/retry/write-no-retry; persist/replay
+- Bilinen sınırlar: urllib timeout kesin wall-clock kill değildir; native sync tool zorla kesilmez; submission_timeout ≠ run deadline
+- Geri alma: branch sil / önceki `2febf5d`; şema migration yok
+- Merge / A04: yok
+
+### A03 manuel UAT talimatı (kullanıcı)
+
+1. Normal `.env` profili: `04_multilingual_unicode.docx` özeti → “bu belgedeki denetim sıklığı?”; sonra `03_lowres_scan_inside_word.docx` özeti → “bu belgedeki görseli göster”. Gerçek belge adı / takip bozulmamalı.
+2. Geçici override `AGENT_MAX_STEPS=1` (yalnız app config/.env; shell prefix’e güvenme): yeni belge okuma → uydurma özet yerine anlaşılır STOP/açıklama. Flaky gerçek-model hızıyla PASS üretme.
+3. Sentetik büyük TXT: kısaltma görünür, kaynak adı korunur. Yenileme / yeni konuşma davranışı korunur.
+4. Override’ları geri al; normal `.env` commit edilmez.
+
+### A03 browser UAT sonucu (2026-11-07, agent)
+
+- Ortam: `http://127.0.0.1:3000`, branch `codex/agent-a03-run-budgets` @ `2ca79e4`, AUTH_DISABLED
+- Upload API: `source_filename` / `suggest_prompt` gerçek ad; mesajda `extracted_data/...` yok
+- `04_multilingual_unicode.docx` özet → başlık gerçek ad; `file_name_search`→`file_read`→ANSWER; “bu belgedeki denetim sıklığı?” → 45 gün, belge adı korunur — **PASS**
+- `03_lowres_scan_inside_word.docx` özet → gerçek ad; “bu belgedeki görseli göster” → `show_image` + `/agent/corpus/extracted_data/03_lowres_scan_inside_word/images/img_001.png`; yenilemede oturum korunur — **PASS**
+- Geçici `AGENT_MAX_STEPS=1`: `UAT Büyük Kaynak.txt` → STOP_INCOMPLETE, “Mevcut gözlemlerle terminal karar beklenirken yeniden araç çağrısı yapıldı.”; uydurma özet yok; sonra `.env` `8`’e alındı — **PASS**
+- Büyük TXT normal profil (`MAX_STEPS=8`): decide aşamasında `FlowLlmClientError` (yerel model/transport); kısaltma görünürlüğü bu turda browser’da kanıtlanamadı (unit testte var) — **NOT / KISMİ** (aşağıdaki inceleme UAT ile güncellendi)
+
+### A03 inceleme düzeltmesi UAT (2026-11-07, agent)
+
+- Kanıt: `qwen3.5:9b` `/api/ps` → `context_length=65536`, `size_vram≈7.29 GiB` (embedding ayrı 8192; global OLLAMA_CONTEXT_LENGTH değiştirilmedi)
+- `UAT_Sentetik_Ctx64K.txt` (~111 KB, CTRL-HEAD/MID/TAIL): `final_status=ANSWER`; üç kod yanıtta; ham `FlowLlmClientError` yok — **PASS**
+- `04_multilingual_unicode.docx` özet + “denetim sıklığı?” → 45 / belge adı — **PASS**
+- `03_lowres_scan_inside_word.docx` + “görseli göster” → `img_001.png` inline — **PASS**
+- Observation truncation meta (`truncated=true`) unit + run_budget alanlarında; sessiz provider truncation yok
+- Merge/A04: yok; PR #4 merge yetkisi yok

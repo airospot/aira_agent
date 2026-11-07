@@ -26,11 +26,15 @@ AGENT_PAGE_TYPE = "Agent"
 _SOURCE_KIND_NOTE = (
     "active_conversation.turns is the only active dialogue for this session. "
     "long_term_memory / structured_memory are background user context only. "
-    "They must not override tool observations from file_read / file_search."
+    "They must not override tool observations from file_read / file_search. "
+    "historical_tool_references are not the active document; re-verify with tools."
 )
 
 _CONTEXT_POLICY = {
     "active_entity_source": "active_conversation.turns_and_current_request_only",
+    "document_reference_priority": (
+        "current_request_explicit_path_then_latest_opened_in_session_then_clarify"
+    ),
     "long_term_memory_role": (
         "authorized_user_history_and_preferences_not_automatic_entity_binding"
     ),
@@ -406,6 +410,12 @@ def _refs_from_decision_step(
         ref = dict(base)
         ref["observation_kind"] = "file_read"
         ref["path"] = path.strip()
+        source_filename = obs.get("source_filename")
+        if isinstance(source_filename, str) and source_filename.strip():
+            ref["source_filename"] = source_filename.strip()
+        display_name = obs.get("display_name")
+        if isinstance(display_name, str) and display_name.strip():
+            ref["display_name"] = display_name.strip()
         if (
             _historical_refs_json_bytes([ref])
             > _MAX_HISTORICAL_TOOL_REFERENCES_JSON_BYTES
@@ -422,6 +432,12 @@ def _refs_from_decision_step(
         display_url = obs.get("display_url")
         if isinstance(display_url, str) and display_url.strip():
             ref["display_url"] = display_url.strip()
+        source_filename = obs.get("source_filename")
+        if isinstance(source_filename, str) and source_filename.strip():
+            ref["source_filename"] = source_filename.strip()
+        display_name = obs.get("display_name")
+        if isinstance(display_name, str) and display_name.strip():
+            ref["display_name"] = display_name.strip()
         if (
             _historical_refs_json_bytes([ref])
             > _MAX_HISTORICAL_TOOL_REFERENCES_JSON_BYTES
@@ -455,6 +471,12 @@ def _file_candidate_refs(
         name = item.get("name")
         if isinstance(name, str) and name.strip():
             ref["name"] = name.strip()
+        source_filename = item.get("source_filename")
+        if isinstance(source_filename, str) and source_filename.strip():
+            ref["source_filename"] = source_filename.strip()
+        display_name = item.get("display_name")
+        if isinstance(display_name, str) and display_name.strip():
+            ref["display_name"] = display_name.strip()
         if (
             _historical_refs_json_bytes([ref])
             > _MAX_HISTORICAL_TOOL_REFERENCES_JSON_BYTES

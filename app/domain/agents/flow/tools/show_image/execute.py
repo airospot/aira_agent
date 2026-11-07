@@ -14,6 +14,7 @@ from app.shared.corpus_path_sandbox import (
     resolve_corpus_root,
     resolve_under_corpus,
 )
+from app.shared.document_source_identity import resolve_document_source
 
 _DIR = Path(__file__).resolve().parent
 _ARGUMENTS_SCHEMA = json.loads((_DIR / "tool.json").read_text(encoding="utf-8"))["arguments"]
@@ -30,14 +31,35 @@ def execute_show_image(
     arguments: Any,
     *,
     config: Mapping[str, Any] | None = None,
+    execution_control: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     _ARGUMENTS_VALIDATOR.validate(arguments)
-    result = _show(str(arguments["path"]), config=config)
+    result = _show(
+        str(arguments["path"]),
+        config=config,
+        execution_control=execution_control,
+    )
     _RESULT_VALIDATOR.validate(result)
     return result
 
 
-def _show(path_arg: str, *, config: Mapping[str, Any] | None) -> dict[str, Any]:
+def _show(
+    path_arg: str,
+    *,
+    config: Mapping[str, Any] | None,
+    execution_control: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    from app.domain.agents.flow.tooling.execution_control import (
+        ToolDeadlineExceeded,
+        execution_control_from_mapping,
+    )
+
+    control = execution_control_from_mapping(execution_control)
+    if control is not None:
+        try:
+            control.checkpoint()
+        except ToolDeadlineExceeded:
+            return _result("error", path=path_arg, error="tool_deadline_exceeded")
     root = resolve_corpus_root(config)
     target = resolve_under_corpus(root, path_arg)
     if target is None:
@@ -74,12 +96,14 @@ def _show(path_arg: str, *, config: Mapping[str, Any] | None) -> dict[str, Any]:
             return _result("not_image", path=path_arg, error="not_image_mime")
     rel = target.relative_to(root).as_posix()
     display_url = _CORPUS_URL_PREFIX + quote(rel, safe="/")
+    identity = resolve_document_source(root, rel)
     return _result(
         "ok",
         path=rel,
         display_url=display_url,
         mime=mime,
         byte_size=byte_size,
+        identity=identity.as_tool_fields(),
     )
 
 
@@ -91,7 +115,16 @@ def _result(
     mime: str | None = None,
     byte_size: int | None = None,
     error: str | None = None,
+    identity: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    fields = {
+        "source_filename": None,
+        "display_name": None,
+        "source_known": False,
+        "source_ambiguous": False,
+    }
+    if identity:
+        fields.update(dict(identity))
     return {
         "status": status,
         "path": path,
@@ -99,4 +132,5 @@ def _result(
         "mime": mime,
         "byte_size": byte_size,
         "error": error,
+        **fields,
     }

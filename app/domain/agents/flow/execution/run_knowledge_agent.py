@@ -25,6 +25,11 @@ from app.domain.agents.flow.execution.answer_show_image import (
 from app.domain.agents.flow.execution.run_agent_loop import (
     run_agent_loop,
 )
+from app.domain.agents.flow.execution.run_policy import (
+    RunBudget,
+    RunPolicy,
+    parse_run_policy,
+)
 from app.domain.agents.flow.tooling import (
     ToolExecutor,
     ToolNotPermittedError,
@@ -50,9 +55,13 @@ def run_knowledge_agent(
     caller_context: Mapping[str, Any] | None = None,
     tool_registry: ToolRegistry | None = None,
     permitted_tool_names: set[str] | frozenset[str] | None = None,
+    run_policy: RunPolicy | None = None,
+    clock: Callable[[], float] | None = None,
 ) -> dict[str, Any]:
     """Run one agent turn with corpus file tools via shared registry/executor."""
     del dataset_dir, caller_context  # legacy kwargs ignored
+    policy = run_policy or parse_run_policy(config)
+    budget = RunBudget.start(policy, clock=clock)
     client = create_flow_llm_client(config)
 
     registry = tool_registry or build_native_tool_registry()
@@ -60,7 +69,6 @@ def run_knowledge_agent(
         permitted = frozenset(NATIVE_TOOL_NAMES)
     else:
         permitted = frozenset(str(n).strip() for n in permitted_tool_names if str(n).strip())
-    # Catalog and execution share the same registry + allowlist (no separate executor inject).
     executor = ToolExecutor(registry, permitted_names=permitted)
 
     permitted_tools = registry.catalog(names=permitted)
@@ -70,7 +78,6 @@ def run_knowledge_agent(
         "file_name_search": "file_name_search",
         "show_image": "show_image",
     }
-    # Prefer catalog names when present (keeps aliases stable if renamed in JSON).
     for entry in permitted_tools:
         name = entry.get("name")
         if isinstance(name, str) and name in tool_names:
@@ -103,6 +110,19 @@ def run_knowledge_agent(
             ),
         )
 
+    def _tool_meta_lookup(tool: str) -> dict[str, Any] | None:
+        spec = registry.get(tool)
+        if spec is None:
+            return None
+        return {
+            "side_effect_class": spec.side_effect_class,
+            "retry_policy": spec.retry_policy,
+            "cache_policy": spec.cache_policy,
+            "timeout_seconds": spec.timeout_seconds,
+            "extra_metadata": dict(spec.extra_metadata or {}),
+            "repeatable": bool((spec.extra_metadata or {}).get("repeatable")),
+        }
+
     def _decide(request_text, conversation, observations, decision_constraints=None):
         nonlocal step, seen_observations
         step += 1
@@ -124,12 +144,16 @@ def run_knowledge_agent(
                 client,
                 permitted_tools=permitted_tools,
                 decision_constraints=decision_constraints,
+                budget=budget,
             )
         except Exception as exc:  # noqa: BLE001
             _emit("error", status=type(exc).__name__, duration_ms=_duration_ms(started))
             raise
         decide_ms = _duration_ms(started)
         _emit("decide_finished", duration_ms=decide_ms)
+        usage = _client_usage(client)
+        if usage:
+            budget.usage_by_step.append({"step": step, **usage})
         decision_trace.append(
             _trace_decision_record(
                 step=step,
@@ -138,6 +162,11 @@ def run_knowledge_agent(
                 observations_available=obs_count,
                 tool_names=tool_names,
                 decision_mode="terminal_only" if terminal_only else "normal",
+                usage=usage,
+                context_bytes=budget.last_context_bytes,
+                observation_bytes=budget.last_observation_bytes,
+                context_truncated=budget.context_truncated,
+                observation_truncated=budget.observation_truncated,
             )
         )
         return decision
@@ -163,11 +192,37 @@ def run_knowledge_agent(
             raise ValueError("tool_not_permitted")
         _emit("tool_started", action="CALL_TOOL", tool=tool)
         started = time.perf_counter()
+        slice_s = budget.tool_slice_seconds()
+        if slice_s <= 0:
+            budget.mark_deadline()
+            _emit(
+                "tool_finished",
+                action="CALL_TOOL",
+                tool=tool,
+                status="tool_deadline_exceeded",
+                duration_ms=_duration_ms(started),
+            )
+            return {
+                "status": "error",
+                "error": "tool_deadline_exceeded",
+                "path": None,
+                "source_filename": None,
+                "display_name": None,
+                "source_known": False,
+                "source_ambiguous": False,
+            }
+        control = {
+            "deadline_monotonic": budget.now() + slice_s,
+            "remaining_seconds": slice_s,
+            "tool_timeout_seconds": budget.policy.tool_timeout_seconds,
+            "clock": budget.clock,
+        }
         try:
             observation = executor.execute(
                 tool,
                 decision.get("arguments"),
                 config=config,
+                execution_control=control,
             )
         except (ToolNotPermittedError, ToolNotRegisteredError):
             _emit("error", status="tool_not_permitted")
@@ -209,15 +264,14 @@ def run_knowledge_agent(
         _decide,
         _validate,
         execute_tool=_execute_tool,
-        max_steps=8,
+        budget=budget,
+        tool_meta_lookup=_tool_meta_lookup,
     )
     status = result.get("status")
     action = None
     decision = result.get("decision")
     if isinstance(decision, dict) and decision.get("action") is not None:
         action = str(decision.get("action"))
-    # Persist-ready ANSWER: verified current-turn show_image URLs become Markdown images
-    # so refresh/history do not depend on the model emitting ![ ](...).
     if (
         str(status) == "ANSWER"
         and isinstance(decision, dict)
@@ -240,7 +294,19 @@ def run_knowledge_agent(
     out["decision_trace"] = decision_trace
     out["decision_trace_final_status"] = str(status) if status is not None else None
     out["decision_trace_final_action"] = action
+    out["run_budget"] = budget.as_trace_metadata()
     return out
+
+
+def _client_usage(client: Any) -> dict[str, Any] | None:
+    meta = getattr(client, "last_meta", None)
+    if not isinstance(meta, Mapping) or not meta:
+        return None
+    out: dict[str, Any] = {}
+    for key in ("input_tokens", "output_tokens", "total_tokens", "model", "request_id"):
+        if key in meta:
+            out[key] = meta.get(key)
+    return out or None
 
 
 def _trace_decision_record(
@@ -250,68 +316,86 @@ def _trace_decision_record(
     decide_duration_ms: int,
     observations_available: int,
     tool_names: Mapping[str, str],
-    decision_mode: str = "normal",
+    decision_mode: str,
+    usage: Mapping[str, Any] | None = None,
+    context_bytes: int | None = None,
+    observation_bytes: int | None = None,
+    context_truncated: bool = False,
+    observation_truncated: bool = False,
 ) -> dict[str, Any]:
-    action = None
-    tool = None
-    arguments = None
-    if decision is not None:
-        if decision.get("action") is not None:
-            action = str(decision.get("action"))
-        if decision.get("tool") is not None:
-            tool = str(decision.get("tool"))
-        if action == "CALL_TOOL":
-            arguments = _safe_tool_arguments(
-                decision.get("arguments"),
-                tool=tool,
-                tool_names=tool_names,
-            )
-    return {
+    record: dict[str, Any] = {
         "step": step,
-        "action": action,
-        "tool": tool,
-        "arguments": arguments,
+        "decision_mode": decision_mode,
         "decide_duration_ms": decide_duration_ms,
         "observations_available": observations_available,
-        "decision_mode": decision_mode,
+        "action": None,
+        "tool": None,
+        "arguments": None,
+        "context_bytes": context_bytes,
+        "observation_bytes": observation_bytes,
+        "context_truncated": context_truncated,
+        "observation_truncated": observation_truncated,
     }
+    if usage:
+        record["usage"] = dict(usage)
+    if not isinstance(decision, Mapping):
+        return record
+    action = decision.get("action")
+    record["action"] = str(action) if action is not None else None
+    tool = decision.get("tool")
+    if isinstance(tool, str) and tool:
+        record["tool"] = tool_names.get(tool, tool)
+    args = decision.get("arguments")
+    if isinstance(args, Mapping):
+        record["arguments"] = _summarize_arguments(tool if isinstance(tool, str) else None, args)
+    return record
 
 
-def _safe_tool_arguments(
-    arguments: Any,
-    *,
-    tool: str | None,
-    tool_names: Mapping[str, str],
-) -> dict[str, Any] | None:
-    if not isinstance(arguments, Mapping):
-        return None
-    if tool == tool_names.get("file_read"):
+def _summarize_arguments(tool: str | None, args: Mapping[str, Any]) -> dict[str, Any]:
+    if tool == "file_read":
         keys = _FILE_READ_ARG_KEYS
-    elif tool == tool_names.get("file_search"):
+    elif tool == "file_search":
         keys = _FILE_SEARCH_ARG_KEYS
-    elif tool == tool_names.get("file_name_search"):
+    elif tool == "file_name_search":
         keys = _FILE_NAME_SEARCH_ARG_KEYS
-    elif tool == tool_names.get("show_image"):
+    elif tool == "show_image":
         keys = _SHOW_IMAGE_ARG_KEYS
     else:
-        return None
-    return {key: arguments[key] for key in keys if key in arguments}
+        keys = tuple(str(k) for k in list(args.keys())[:8])
+    out: dict[str, Any] = {}
+    for key in keys:
+        if key in args:
+            val = args.get(key)
+            if isinstance(val, str) and len(val) > 200:
+                out[key] = val[:200] + "…"
+            else:
+                out[key] = val
+    return out
 
 
 def _summarize_observation(
     observation: Any,
     *,
-    tool: str | None,
+    tool: str,
     tool_names: Mapping[str, str],
 ) -> dict[str, Any]:
+    summary: dict[str, Any] = {"tool": tool_names.get(tool, tool)}
     if not isinstance(observation, Mapping):
-        return {"status": None}
+        summary["status"] = "invalid_observation"
+        return summary
     status = observation.get("status")
-    summary: dict[str, Any] = {
-        "status": str(status) if status is not None else None,
-    }
+    summary["status"] = str(status) if status is not None else None
     if tool == tool_names.get("file_read"):
-        for key in ("path", "truncated", "byte_size", "error"):
+        for key in (
+            "path",
+            "truncated",
+            "byte_size",
+            "error",
+            "source_filename",
+            "display_name",
+            "source_known",
+            "source_ambiguous",
+        ):
             if key in observation:
                 summary[key] = observation[key]
         content = observation.get("content")
@@ -319,7 +403,17 @@ def _summarize_observation(
             summary["content_chars"] = len(content)
         return summary
     if tool == tool_names.get("show_image"):
-        for key in ("path", "display_url", "mime", "byte_size", "error"):
+        for key in (
+            "path",
+            "display_url",
+            "mime",
+            "byte_size",
+            "error",
+            "source_filename",
+            "display_name",
+            "source_known",
+            "source_ambiguous",
+        ):
             if key in observation:
                 summary[key] = observation[key]
         return summary
@@ -341,11 +435,20 @@ def _summarize_observation(
                     entry["line"] = item.get("line")
                 if "name" in item:
                     entry["name"] = item.get("name")
+                for key in (
+                    "source_filename",
+                    "display_name",
+                    "source_known",
+                    "source_ambiguous",
+                ):
+                    if key in item:
+                        entry[key] = item.get(key)
                 candidates_out.append(entry)
         summary["candidates"] = candidates_out
         return summary
+    # Unknown tool: keep status only (no raw dump).
     return summary
 
 
-def _duration_ms(started_at: float) -> int:
-    return max(0, int((time.perf_counter() - started_at) * 1000))
+def _duration_ms(started: float) -> int:
+    return max(0, int((time.perf_counter() - started) * 1000))

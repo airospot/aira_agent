@@ -7,6 +7,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
+from app.domain.agents.flow.execution.run_policy import (
+    RunPolicy,
+    parse_run_policy,
+    run_policy_config_overlay,
+)
+
 
 # Matches DB VARCHAR(64): first char + up to 63 more → max 64 total.
 _SUBMISSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
@@ -59,6 +65,7 @@ class ExecutionContext:
     permitted_tool_names: frozenset[str]
     submission_timeout_seconds: int
     runner_config: Mapping[str, Any] = field(default_factory=dict)
+    run_policy: RunPolicy | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -83,11 +90,16 @@ class ExecutionContext:
         if timeout < 1:
             raise ValueError("submission_timeout_seconds must be >= 1")
         object.__setattr__(self, "submission_timeout_seconds", timeout)
-        object.__setattr__(
-            self,
-            "runner_config",
-            _snapshot_runner_config(self.runner_config, corpus_root=root),
-        )
+        snap = _snapshot_runner_config(self.runner_config, corpus_root=root)
+        policy = self.run_policy
+        if policy is None:
+            policy = parse_run_policy(snap)
+        else:
+            if not isinstance(policy, RunPolicy):
+                raise ValueError("run_policy must be RunPolicy")
+        snap.update(run_policy_config_overlay(policy))
+        object.__setattr__(self, "run_policy", policy)
+        object.__setattr__(self, "runner_config", snap)
 
 
 @dataclass(frozen=True)

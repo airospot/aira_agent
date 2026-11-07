@@ -17,7 +17,7 @@ from markupsafe import Markup
 
 load_dotenv(ROOT / ".env", override=True)
 
-_DIR_KEYS = ("AGENT_CORPUS_DIR",)
+_DIR_KEYS = ("AGENT_CORPUS_DIR", "TENANT_DATA_ROOT")
 
 _ENV_OVERLAY = (
     "SECRET_KEY",
@@ -36,8 +36,18 @@ _ENV_OVERLAY = (
     "KNOWLEDGE_FLOW_LLM_MODEL",
     "KNOWLEDGE_FLOW_LLM_API_KEY",
     "KNOWLEDGE_FLOW_LLM_TIMEOUT_SECONDS",
+    "KNOWLEDGE_FLOW_LLM_CONTEXT_TOKENS",
+    "KNOWLEDGE_FLOW_LLM_MAX_OUTPUT_TOKENS",
+    "KNOWLEDGE_FLOW_LLM_THINK",
     "AGENT_CORPUS_DIR",
+    "TENANT_DATA_ROOT",
     "AGENT_SUBMISSION_TIMEOUT_SECONDS",
+    "AGENT_MAX_STEPS",
+    "AGENT_RUN_TIMEOUT_SECONDS",
+    "AGENT_TOOL_TIMEOUT_SECONDS",
+    "AGENT_MAX_OBSERVATION_BYTES",
+    "AGENT_MAX_CONTEXT_BYTES",
+    "AGENT_MAX_TOOL_RETRIES",
 )
 
 _SECRET_KEY_PLACEHOLDERS = frozenset(
@@ -90,7 +100,7 @@ def create_app() -> Flask:
     import app.adapters.db.agents.models.user  # noqa: F401
     import app.adapters.db.agents.models.structured_memory_tables  # noqa: F401
     import app.adapters.db.agents.models.rbac  # noqa: F401
-    from app.interfaces.web.safe_markdown import render_safe_markdown
+    from app.interfaces.web.assistant_markdown import render_assistant_markdown
     from app.interfaces.web.agent_routes import agent_bp
 
     templates = ROOT / "app/interfaces/web/templates"
@@ -132,10 +142,10 @@ def create_app() -> Flask:
 
     db.init_app(app)
 
-    def safe_markdown(value):
-        return Markup(render_safe_markdown(value or ""))
+    def assistant_markdown(value):
+        return Markup(render_assistant_markdown(value or ""))
 
-    app.jinja_env.filters["safe_markdown"] = safe_markdown
+    app.jinja_env.filters["assistant_markdown"] = assistant_markdown
 
     @app.route(
         "/agent/static/<path:filename>",

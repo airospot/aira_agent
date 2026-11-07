@@ -78,4 +78,13 @@ CONFIG araması için `KNOWLEDGE_FLOW_CONFIG_CORPUS_CUSTOMER_ALLOWLIST` dolu olm
 
 Anlamsal uzun süreli bellek yalnız Ollama `qwen3-embedding:4b` + `dimensions=1536` profilini kullanır (`app/adapters/db/embeddings/ollama_embed.py`). OpenAI/nomic sessiz fallback yoktur. Profil etiketi: `docs/EMBEDDING_PROFILE.md`.
 
+## Tenant belge deposu
+
+Kimliği doğrulanmış agent çalışması ve upload’lar `TENANT_DATA_ROOT` (varsayılan `data/tenants`) altında tutulur:
+
+- `data/tenants/<customer_id>/uploads/<upload_id>/` — orijinal baytlar + `manifest.json`
+- `data/tenants/<customer_id>/corpus/` — agent’ın gördüğü türev corpus (`AGENT_CORPUS_DIR` bu istekte tenant corpus’a ayarlanır)
+
+Eski `AGENT_CORPUS_DIR=data/corpus` paylaşılan kök, runtime fallback değildir; yalnız migration kaynağıdır. Kopyalama: `scripts/migrate_shared_corpus_to_tenant.py --source … --tenant <id>` (varsayılan dry-run; `--apply` yazma). Orijinal indirme: `GET /agent/documents/<upload_id>/original`.
+
 Ayrıntı: `CHANGES.md`, `DEPENDENCY_GRAPH.md`, `TOOLS.md`, `VERIFICATION.md`.

@@ -67,11 +67,11 @@
                  data-agent-turn-href="{{ url_for('agent.assistant', session_id=session_id, turn_id=turn.memory_id) }}"
                  aria-current="{{ 'true' if selected_turn_id and turn.memory_id == selected_turn_id else 'false' }}"
                  aria-label="Bu yanıta ait Flow izini göster">
-              <div class="assistant-prose agent-md">{{ turn.content | safe_markdown }}</div>
+              <div class="assistant-prose agent-md">{{ turn.content | assistant_markdown }}</div>
             </div>
             {% elif turn.role == 'assistant' %}
             <div class="agent-chat-bubble agent-chat-bubble-assistant">
-              <div class="assistant-prose agent-md">{{ turn.content | safe_markdown }}</div>
+              <div class="assistant-prose agent-md">{{ turn.content | assistant_markdown }}</div>
             </div>
             {% else %}
             <div class="agent-chat-bubble agent-chat-bubble-{{ turn.role }}">{{ turn.content }}</div>
@@ -87,7 +87,7 @@
           {% if agent_reply %}
           <div class="agent-chat-row agent-chat-row-assistant">
             <div class="agent-chat-bubble agent-chat-bubble-assistant">
-              <div class="assistant-prose agent-md">{{ agent_reply | safe_markdown }}</div>
+              <div class="assistant-prose agent-md">{{ agent_reply | assistant_markdown }}</div>
             </div>
           </div>
           {% endif %}
@@ -98,7 +98,7 @@
           {% endif %}
         {% else %}
           <div class="agent-chat-empty">
-            <p class="muted">Yerel corpus hakkında sorun. Aynı oturumda önceki mesajlar korunur; yeni konuşma geçmişi taşımaz.</p>
+            <p class="muted">Kaynak dosyalar yükleyin ve hakkında sorular sorun. Aynı oturumda önceki mesajlar korunur; yeni konuşma geçmişi taşımaz.</p>
           </div>
         {% endif %}
       </div>

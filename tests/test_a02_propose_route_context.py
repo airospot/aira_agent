@@ -80,6 +80,8 @@ def test_form_customer_user_cannot_override_execution_context(app_client):
     assert captured["customer_id"] == 9
     assert captured["user_id"] == 7
     assert "evil_tool" not in captured["permitted"]
+    assert captured["corpus"] is not None
+    assert captured["corpus"].endswith("/9/corpus") or "/9/corpus" in captured["corpus"]
 
 
 def test_route_maps_outcome_kind_to_http_400(app_client):

@@ -1,30 +1,20 @@
 """Knowledge Flow native LLM istemcisi.
 
 Görev:
-    OpenAI-uyumlu Chat Completions üzerinden tek bir JSON karar nesnesi ister.
-    GPT-4.1 için kullanılan mevcut istek/yanıt sözleşmesini korur.
+    Karar JSON'u ister. Yerel Ollama için /api/chat + native num_ctx/num_predict/think;
+    cloud OpenAI-uyumlu için /v1/chat/completions.
 
 Input:
-    Constructor: base_url, model, api_key, timeout_seconds (config/factory dışarıdan verir).
+    Constructor: base_url, model, api_key, timeout_seconds,
+    context_tokens / max_output_tokens / think (Ollama zorunlu; factory verir).
     complete_json(system_prompt, user_payload): sistem metni + kullanıcı JSON yükü.
 
 Output:
-    Modelin choices[0].message.content içindeki JSON nesnesi (dict).
-    Semantik değiştirme yok.
-
-Kullanım örneği:
-    client = FlowLlmClient(
-        base_url="https://api.openai.com/v1",
-        model="gpt-6-luna-3-preview",
-        api_key=...,
-        timeout_seconds=75,
-    )
-    decision = client.complete_json(system_prompt, user_payload)
+    Modelin assistant content içindeki JSON nesnesi (dict).
+    Reasoning/thinking içeriği karar olarak parse edilmez.
 
 Sorumluluk sınırı:
-    Yalnız LLM HTTP çağrısı. Intent, tool seçimi, prompt üretimi, schema
-    doğrulama, Gateway, memory, Flow event ve Flask route yok.
-    Config: yalnız KNOWLEDGE_FLOW_LLM_* (factory üzerinden).
+    Yalnız LLM HTTP çağrısı. Intent, tool, memory, Flask yok.
 """
 
 from __future__ import annotations
@@ -33,7 +23,12 @@ import json
 import urllib.error
 import urllib.request
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
+from app.domain.agents.flow.execution.decision.json_payload import (
+    dumps_compact,
+    measure_decision_context_bytes,
+)
 from app.shared.runtime_utils import redact_secrets
 
 
@@ -45,8 +40,34 @@ class FlowLlmClientError(RuntimeError):
         self.error_class = error_class
 
 
+def is_ollama_endpoint(base_url: str) -> bool:
+    host = str(base_url or "").lower()
+    return any(
+        token in host
+        for token in (
+            "127.0.0.1",
+            "localhost",
+            "0.0.0.0",
+            ":11434",
+            "ollama",
+        )
+    )
+
+
+def ollama_native_root(base_url: str) -> str:
+    """http://host:11434/v1 → http://host:11434"""
+    raw = str(base_url or "").strip().rstrip("/")
+    parts = urlsplit(raw)
+    path = parts.path or ""
+    if path.endswith("/v1"):
+        path = path[: -len("/v1")]
+    elif path == "/v1":
+        path = ""
+    return urlunsplit((parts.scheme, parts.netloc, path.rstrip("/"), "", "")).rstrip("/")
+
+
 class FlowLlmClient:
-    """OpenAI-compatible JSON chat client for Knowledge Agent Flow."""
+    """JSON chat client: Ollama native or OpenAI-compatible cloud."""
 
     def __init__(
         self,
@@ -54,17 +75,23 @@ class FlowLlmClient:
         base_url: str,
         model: str,
         api_key: str,
-        timeout_seconds: int = 75,
+        timeout_seconds: int,
+        context_tokens: int | None = None,
+        max_output_tokens: int | None = None,
+        think: bool | None = None,
     ) -> None:
         self.base_url = str(base_url or "").rstrip("/")
         self.model = str(model or "").strip()
         self.api_key = str(api_key or "")
         self.timeout_seconds = int(timeout_seconds)
+        self.context_tokens = context_tokens
+        self.max_output_tokens = max_output_tokens
+        self.think = think
         self.last_meta: dict[str, Any] = {}
         if not self.base_url:
             raise FlowLlmClientError("base_url required", "provider_unavailable")
         if not self.model:
-            raise FlowLlmClientError("model required (expected gpt-6-luna-3-preview)", "model_unavailable")
+            raise FlowLlmClientError("model required", "model_unavailable")
         if self.model.lower() in {"fake", "mock", "scripted", "stub"}:
             raise FlowLlmClientError(
                 f"Unsupported model={self.model!r}.",
@@ -72,88 +99,238 @@ class FlowLlmClient:
             )
         if not self.api_key:
             raise FlowLlmClientError("api_key required", "authentication_failed")
+        if self.uses_ollama_native():
+            if self.context_tokens is None:
+                raise FlowLlmClientError(
+                    "KNOWLEDGE_FLOW_LLM_CONTEXT_TOKENS required for Ollama",
+                    "provider_unavailable",
+                )
+            if self.max_output_tokens is None:
+                raise FlowLlmClientError(
+                    "KNOWLEDGE_FLOW_LLM_MAX_OUTPUT_TOKENS required for Ollama",
+                    "provider_unavailable",
+                )
+            if self.think is None:
+                raise FlowLlmClientError(
+                    "KNOWLEDGE_FLOW_LLM_THINK required for Ollama",
+                    "provider_unavailable",
+                )
 
-    def _is_local_openai_compatible(self) -> bool:
-        host = self.base_url.lower()
-        return any(
-            token in host
-            for token in (
-                "127.0.0.1",
-                "localhost",
-                "0.0.0.0",
-                ":11434",
-                "ollama",
+    def uses_ollama_native(self) -> bool:
+        return is_ollama_endpoint(self.base_url)
+
+    def complete_json(
+        self,
+        system_prompt: str,
+        user_payload: dict[str, Any],
+        *,
+        timeout_seconds: float | int | None = None,
+        max_context_bytes: int | None = None,
+    ) -> dict[str, Any]:
+        """Request one JSON decision.
+
+        ``timeout_seconds`` is per-call and does not mutate ``self.timeout_seconds``.
+        After redaction, sent system+user bytes are checked against ``max_context_bytes``
+        when provided (same compact serializer as the context builder).
+        """
+        safe_user = redact_secrets(user_payload)
+        user_json = dumps_compact(safe_user)
+        sent_bytes = measure_decision_context_bytes(system_prompt, safe_user)
+        if max_context_bytes is not None and sent_bytes > int(max_context_bytes):
+            raise FlowLlmClientError(
+                "decision context exceeds AGENT_MAX_CONTEXT_BYTES after redaction",
+                "context_budget_exceeded",
             )
+
+        call_timeout = (
+            float(timeout_seconds)
+            if timeout_seconds is not None
+            else float(self.timeout_seconds)
         )
 
-    def complete_json(self, system_prompt: str, user_payload: dict[str, Any]) -> dict[str, Any]:
-        safe_user = redact_secrets(user_payload)
-        user_json = json.dumps(safe_user, ensure_ascii=False)
-        local = self._is_local_openai_compatible()
-        body = {
+        if self.uses_ollama_native():
+            return self._complete_json_ollama(
+                system_prompt,
+                user_json,
+                timeout_seconds=call_timeout,
+                sent_bytes=sent_bytes,
+            )
+        return self._complete_json_openai(
+            system_prompt,
+            user_json,
+            timeout_seconds=call_timeout,
+            sent_bytes=sent_bytes,
+        )
+
+    def _complete_json_ollama(
+        self,
+        system_prompt: str,
+        user_json: str,
+        *,
+        timeout_seconds: float,
+        sent_bytes: int,
+    ) -> dict[str, Any]:
+        root = ollama_native_root(self.base_url)
+        endpoint = f"{root}/api/chat"
+        body: dict[str, Any] = {
+            "model": self.model,
+            "stream": False,
+            "think": bool(self.think),
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_json},
+            ],
+            "options": {
+                "num_ctx": int(self.context_tokens),
+                "num_predict": int(self.max_output_tokens),
+            },
+        }
+        if not self.model.lower().startswith("gpt-6-luna"):
+            body["options"]["temperature"] = 0.1
+
+        payload, request_id = self._post_json(endpoint, body, timeout_seconds=timeout_seconds)
+        message = payload.get("message") or {}
+        content = message.get("content")
+        done_reason = payload.get("done_reason")
+        self.last_meta = {
+            "provider": "ollama_native",
+            "transport": "ollama_api_chat",
+            "model": self.model,
+            "request_id": request_id or payload.get("created_at"),
+            "input_tokens": payload.get("prompt_eval_count"),
+            "output_tokens": payload.get("eval_count"),
+            "total_tokens": None,
+            "structured_output": "prompt_json_only",
+            "endpoint": endpoint,
+            "retry": "none",
+            "num_ctx": int(self.context_tokens),
+            "num_predict": int(self.max_output_tokens),
+            "think": bool(self.think),
+            "done_reason": done_reason,
+            "sent_context_bytes": sent_bytes,
+        }
+        return self._decision_from_content(
+            content,
+            finish_or_done_reason=done_reason,
+        )
+
+    def _complete_json_openai(
+        self,
+        system_prompt: str,
+        user_json: str,
+        *,
+        timeout_seconds: float,
+        sent_bytes: int,
+    ) -> dict[str, Any]:
+        endpoint = f"{self.base_url}/chat/completions"
+        body: dict[str, Any] = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_json},
             ],
+            "response_format": {"type": "json_object"},
         }
-        # Local Ollama often rejects or ignores response_format; keep it for cloud APIs.
-        if not local:
-            body["response_format"] = {"type": "json_object"}
-        else:
-            # Qwen3.5 reasoning models can hang or leave content empty unless think is off.
-            body["think"] = False
-            body["max_tokens"] = 2048
-            # Server default OLLAMA_CONTEXT_LENGTH=65536 makes local decide huge/slow.
-            body["options"] = {"num_ctx": 8192}
-        # gpt-6-luna rejects non-default temperature (HTTP 400 unsupported_value).
-        # Older OpenAI-compatible models still accept an explicit low temperature.
+        if self.max_output_tokens is not None:
+            body["max_tokens"] = int(self.max_output_tokens)
         if not self.model.lower().startswith("gpt-6-luna"):
             body["temperature"] = 0.1
-        payload, request_id = self._post_chat(body)
 
+        payload, request_id = self._post_json(
+            endpoint,
+            body,
+            timeout_seconds=timeout_seconds,
+            auth_bearer=True,
+        )
         usage = payload.get("usage") or {}
+        choice0 = (payload.get("choices") or [{}])[0] or {}
+        message = choice0.get("message") or {}
+        content = message.get("content")
+        finish_reason = choice0.get("finish_reason")
         self.last_meta = {
             "provider": "openai_compatible",
+            "transport": "openai_chat_completions",
             "model": self.model,
             "request_id": request_id or payload.get("id"),
             "input_tokens": usage.get("prompt_tokens"),
             "output_tokens": usage.get("completion_tokens"),
             "total_tokens": usage.get("total_tokens"),
-            "structured_output": (
-                "prompt_json_only" if local else "response_format.json_object"
-            ),
-            "endpoint": f"{self.base_url}/chat/completions",
+            "structured_output": "response_format.json_object",
+            "endpoint": endpoint,
             "retry": "none",
+            "finish_reason": finish_reason,
+            "sent_context_bytes": sent_bytes,
+            "max_tokens": self.max_output_tokens,
         }
-        try:
-            message = (payload.get("choices") or [{}])[0].get("message") or {}
-            content = message.get("content")
-            if not str(content or "").strip():
-                # Some local reasoning models put the answer in `reasoning`.
-                content = message.get("reasoning") or message.get("reasoning_content")
-            return self._parse_json_object(content)
-        except FlowLlmClientError:
-            raise
-        except Exception as exc:
-            raise FlowLlmClientError(
-                self._sanitize(f"Malformed LLM JSON content: {exc}"),
-                "malformed_model_response",
-            ) from None
+        # Never treat reasoning* as decision JSON.
+        return self._decision_from_content(
+            content,
+            finish_or_done_reason=finish_reason,
+        )
 
-    def _post_chat(self, body: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
-        data = json.dumps(body).encode("utf-8")
+    def _decision_from_content(
+        self,
+        content: Any,
+        *,
+        finish_or_done_reason: Any,
+    ) -> dict[str, Any]:
+        text = str(content or "").strip()
+        reason = str(finish_or_done_reason or "").strip().lower()
+        if not text:
+            if reason == "length":
+                self.last_meta = {
+                    **self.last_meta,
+                    "error_class": "output_limit",
+                    "finish_or_done_reason": finish_or_done_reason,
+                }
+                raise FlowLlmClientError(
+                    "Model output hit token limit before a decision JSON was produced",
+                    "output_limit",
+                )
+            self.last_meta = {
+                **self.last_meta,
+                "error_class": "malformed_model_response",
+                "finish_or_done_reason": finish_or_done_reason,
+            }
+            raise FlowLlmClientError(
+                "Malformed LLM JSON content: empty message content",
+                "malformed_model_response",
+            )
+        try:
+            return self._parse_json_object(text)
+        except FlowLlmClientError:
+            if reason == "length":
+                self.last_meta = {
+                    **self.last_meta,
+                    "error_class": "output_limit",
+                    "finish_or_done_reason": finish_or_done_reason,
+                }
+                raise FlowLlmClientError(
+                    "Model output hit token limit with incomplete decision JSON",
+                    "output_limit",
+                ) from None
+            raise
+
+    def _post_json(
+        self,
+        endpoint: str,
+        body: dict[str, Any],
+        *,
+        timeout_seconds: float,
+        auth_bearer: bool = False,
+    ) -> tuple[dict[str, Any], str | None]:
+        data = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if auth_bearer:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         req = urllib.request.Request(
-            f"{self.base_url}/chat/completions",
+            endpoint,
             data=data,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-            },
+            headers=headers,
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
+            with urllib.request.urlopen(req, timeout=float(timeout_seconds)) as resp:
                 raw = resp.read().decode("utf-8")
                 request_id = resp.headers.get("x-request-id") or resp.headers.get(
                     "openai-request-id"
@@ -163,10 +340,11 @@ class FlowLlmClient:
             detail = self._sanitize(exc.read().decode("utf-8", errors="ignore")[:400])
             error_class = self._classify_http(exc.code, detail)
             self.last_meta = {
-                "provider": "openai_compatible",
+                "provider": "ollama_native" if self.uses_ollama_native() else "openai_compatible",
                 "model": self.model,
                 "error_class": error_class,
                 "http_status": exc.code,
+                "endpoint": endpoint,
             }
             raise FlowLlmClientError(
                 f"LLM HTTP {exc.code}: {detail}",
@@ -174,10 +352,11 @@ class FlowLlmClient:
             ) from None
         except TimeoutError:
             self.last_meta = {
-                "provider": "openai_compatible",
+                "provider": "ollama_native" if self.uses_ollama_native() else "openai_compatible",
                 "model": self.model,
                 "error_class": "timeout",
-                "timeout_seconds": self.timeout_seconds,
+                "timeout_seconds": float(timeout_seconds),
+                "endpoint": endpoint,
             }
             raise FlowLlmClientError("LLM request timed out", "timeout") from None
         except Exception as exc:
