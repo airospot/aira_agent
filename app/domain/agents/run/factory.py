@@ -12,7 +12,7 @@ from app.domain.agents.run.adapters import (
 )
 from app.domain.agents.run.contracts import ExecutionContext
 from app.domain.agents.run.service import AgentRunService
-from app.shared.corpus_path_sandbox import resolve_corpus_root
+from app.shared.tenant_storage import resolve_tenant_storage
 
 
 def create_agent_run_service(**overrides: Any) -> AgentRunService:
@@ -48,7 +48,9 @@ def build_execution_context(
         config.get("AGENT_SUBMISSION_TIMEOUT_SECONDS")
         or 15 * 60
     )
-    root = resolve_corpus_root(config)
+    # Per-request tenant corpus — no shared AGENT_CORPUS_DIR fallback.
+    storage = resolve_tenant_storage(customer_id, config)
+    root = storage.corpus_root
     return ExecutionContext(
         customer_id=customer_id,
         user_id=user_id,

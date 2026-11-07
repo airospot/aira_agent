@@ -12,6 +12,8 @@ def build_app_config() -> dict[str, Any]:
         "AIRA_DEV_HOST": os.environ.get("AIRA_DEV_HOST", "127.0.0.1"),
         "AIRA_DEV_PORT": os.environ.get("AIRA_DEV_PORT", os.environ.get("FLASK_RUN_PORT", "5000")),
         "AGENT_CORPUS_DIR": os.environ.get("AGENT_CORPUS_DIR", "data/corpus"),
+        # Tenant originals + corpus live under this root (not shared data/corpus).
+        "TENANT_DATA_ROOT": os.environ.get("TENANT_DATA_ROOT", "data/tenants"),
         "KNOWLEDGE_FLOW_LLM_BASE_URL": os.environ.get(
             "KNOWLEDGE_FLOW_LLM_BASE_URL", "http://127.0.0.1:11434/v1"
         ),

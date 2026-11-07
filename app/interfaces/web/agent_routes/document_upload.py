@@ -1,26 +1,31 @@
-"""Upload a document into the agent corpus (data/corpus)."""
+"""Upload into tenant storage: keep originals; publish derived corpus atomically."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import re
+import shutil
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import current_app, jsonify, request
 
 from app.core.security import require_tenant, role_required
-from app.shared.corpus_path_sandbox import TEXT_SUFFIXES, resolve_corpus_root
 from app.domain.services.document_parsers import OFFICE_SUFFIXES, get_parser
 from app.domain.services.document_parsers.vision_ocr import fill_image_placeholders
 from app.interfaces.web.agent_routes.blueprint import agent_bp
+from app.interfaces.web.agent_routes.tenant import tenant_ids
+from app.shared.corpus_path_sandbox import TEXT_SUFFIXES
+from app.shared.tenant_storage import TenantStorage, TenantStorageError, resolve_tenant_storage
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 _MAX_TEXT_UPLOAD_BYTES = 2_000_000
 _MAX_OFFICE_UPLOAD_BYTES = 10_000_000
 _ALLOWED_SUFFIXES = TEXT_SUFFIXES | OFFICE_SUFFIXES
 _EXTRACTED_DIRNAME = "extracted_data"
+_MANIFEST_NAME = "manifest.json"
 
 
 def _safe_stem(name: str) -> str | None:
@@ -91,7 +96,6 @@ def _ext_for_mime(mime: str) -> str:
 
 
 def _save_embedded_images(out_dir: Path, images) -> list[dict]:
-    """Write ``images/img_NNN.ext`` under the per-document folder; return meta rows."""
     if not images:
         return []
     images_dir = out_dir / "images"
@@ -115,7 +119,6 @@ def _save_embedded_images(out_dir: Path, images) -> list[dict]:
 
 
 def _annotate_image_files(text: str, saved_images: list[dict]) -> str:
-    """Insert relative image file refs next to OCR section headings."""
     out = text
     for item in saved_images:
         heading = f"## Embedded image {item['index']}"
@@ -136,7 +139,26 @@ def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _find_cached_extraction(extracted_root: Path, source_sha256: str) -> dict | None:
+def _download_url(upload_id: str) -> str:
+    return f"/agent/documents/{upload_id}/original"
+
+
+def _write_manifest(upload_dir: Path, payload: dict) -> None:
+    path = upload_dir / _MANIFEST_NAME
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _read_manifest(path: Path) -> dict | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _find_cached_extraction(storage: TenantStorage, source_sha256: str) -> dict | None:
+    """Same-tenant only: ready extraction with matching source hash."""
+    extracted_root = storage.corpus_root / _EXTRACTED_DIRNAME
     if not extracted_root.is_dir():
         return None
     for meta_path in extracted_root.glob("*/meta.json"):
@@ -151,7 +173,10 @@ def _find_cached_extraction(extracted_root: Path, source_sha256: str) -> dict | 
         content_path = meta_path.parent / "content.md"
         if not content_path.is_file():
             continue
-        rel = content_path.relative_to(extracted_root.parent).as_posix()
+        try:
+            rel = content_path.relative_to(storage.corpus_root).as_posix()
+        except ValueError:
+            continue
         images = meta.get("images") if isinstance(meta.get("images"), list) else []
         return {
             "path": rel,
@@ -163,11 +188,38 @@ def _find_cached_extraction(extracted_root: Path, source_sha256: str) -> dict | 
     return None
 
 
+def _store_original(
+    storage: TenantStorage,
+    *,
+    upload_id: str,
+    source_filename: str,
+    stored_name: str,
+    data: bytes,
+) -> tuple[Path, Path, str]:
+    upload_dir = storage.upload_dir(upload_id)
+    upload_dir.mkdir(parents=True, exist_ok=False)
+    original = storage.original_path(upload_id, stored_name)
+    original.write_bytes(data)
+    digest = _sha256_hex(data)
+    if _sha256_hex(original.read_bytes()) != digest:
+        raise RuntimeError("original_integrity_failed")
+    return upload_dir, original, digest
+
+
 @agent_bp.post("/documents/upload")
 @require_tenant
 @role_required(["Admin", "Super Admin"])
 def document_upload():
-    """Save an uploaded document under AGENT_CORPUS_DIR (office → extracted_data)."""
+    """Accept upload into tenant uploads/; publish derived files under tenant corpus/."""
+    customer_id, _user_id = tenant_ids()
+    if not customer_id:
+        return jsonify({"ok": False, "error": "tenant_required"}), 403
+
+    try:
+        storage = resolve_tenant_storage(customer_id, current_app.config)
+    except TenantStorageError as exc:
+        return jsonify({"ok": False, "error": str(exc) or "tenant_required"}), 403
+
     uploaded = request.files.get("file") or request.files.get("document")
     if uploaded is None or not str(uploaded.filename or "").strip():
         return jsonify({"ok": False, "error": "file_required"}), 400
@@ -179,125 +231,234 @@ def document_upload():
         return jsonify({"ok": False, "error": "unsupported_type", "allowed": allowed}), 400
 
     stem, suffix = parsed_name
+    stored_name = f"{stem}{suffix}"
     is_office = suffix in OFFICE_SUFFIXES
     max_bytes = _MAX_OFFICE_UPLOAD_BYTES if is_office else _MAX_TEXT_UPLOAD_BYTES
     data = uploaded.read(max_bytes + 1)
     if len(data) > max_bytes:
         return jsonify({"ok": False, "error": "file_too_large", "max_bytes": max_bytes}), 400
 
-    root = resolve_corpus_root(current_app.config)
-    root.mkdir(parents=True, exist_ok=True)
+    if not is_office and b"\x00" in data[:512]:
+        return jsonify({"ok": False, "error": "binary_rejected"}), 400
+
+    upload_id = uuid.uuid4().hex
+    try:
+        upload_dir, original_path, source_sha = _store_original(
+            storage,
+            upload_id=upload_id,
+            source_filename=source_filename,
+            stored_name=stored_name,
+            data=data,
+        )
+    except (OSError, TenantStorageError, RuntimeError) as exc:
+        return jsonify({"ok": False, "error": "store_failed", "detail": type(exc).__name__}), 500
+
+    created_at = datetime.now(timezone.utc).isoformat()
+    base_manifest = {
+        "upload_id": upload_id,
+        "customer_id": storage.customer_id,
+        "source_filename": source_filename,
+        "stored_filename": stored_name,
+        "original_sha256": source_sha,
+        "byte_size": len(data),
+        "status": "uploaded",
+        "error_code": None,
+        "corpus_relative_path": None,
+        "created_at": created_at,
+        "cached": False,
+    }
+    _write_manifest(upload_dir, base_manifest)
 
     if is_office:
-        source_sha = _sha256_hex(data)
-        extracted_root = root / _EXTRACTED_DIRNAME
-        extracted_root.mkdir(parents=True, exist_ok=True)
-        cached = _find_cached_extraction(extracted_root, source_sha)
+        cached = _find_cached_extraction(storage, source_sha)
         if cached is not None:
+            # Original already stored; reuse same-tenant derived path only.
+            base_manifest.update(
+                {
+                    "status": "ready",
+                    "corpus_relative_path": cached["path"],
+                    "cached": True,
+                    "image_count": cached["image_count"],
+                    "images": cached.get("images") or [],
+                }
+            )
+            _write_manifest(upload_dir, base_manifest)
+            assert _sha256_hex(original_path.read_bytes()) == source_sha
             return jsonify(
                 {
                     "ok": True,
+                    "upload_id": upload_id,
+                    "download_url": _download_url(upload_id),
                     "path": cached["path"],
                     "source_filename": source_filename,
+                    "original_sha256": source_sha,
+                    "status": "ready",
                     "parsed": True,
                     "cached": True,
                     "image_count": cached["image_count"],
                     "images": cached.get("images") or [],
                     "byte_size": cached["byte_size"],
                     "message": (
-                        f"{source_filename} cache'ten alındı: {cached['path']}"
+                        f"{source_filename} orijinal saklandı; türev cache: {cached['path']}"
                     ),
                 }
             )
 
+        base_manifest["status"] = "processing"
+        _write_manifest(upload_dir, base_manifest)
+
         parser = get_parser(suffix)
         if parser is None:
-            return jsonify({"ok": False, "error": "unsupported_type"}), 400
-        try:
-            result = parser.parse(data, filename=source_filename)
-        except Exception as exc:  # noqa: BLE001
+            base_manifest["status"] = "failed"
+            base_manifest["error_code"] = "unsupported_type"
+            _write_manifest(upload_dir, base_manifest)
             return jsonify(
                 {
                     "ok": False,
-                    "error": "parse_failed",
-                    "detail": type(exc).__name__,
+                    "error": "unsupported_type",
+                    "upload_id": upload_id,
+                    "download_url": _download_url(upload_id),
+                    "status": "failed",
+                    "original_preserved": True,
+                    "original_sha256": source_sha,
                 }
             ), 400
 
-        out_dir = _unique_extracted_dir(extracted_root, stem)
-        out_dir.mkdir(parents=True, exist_ok=False)
-        saved_images = _save_embedded_images(out_dir, result.images)
+        staging = upload_dir / "staging"
+        if staging.exists():
+            shutil.rmtree(staging)
+        staging.mkdir(parents=True, exist_ok=True)
+        staging_out = staging / stem
 
-        filled = fill_image_placeholders(
-            result.text,
-            result.images,
-            config=current_app.config,
-        )
-        filled = _annotate_image_files(filled, saved_images)
-        if not filled.strip() and not result.images:
-            return jsonify({"ok": False, "error": "empty_text"}), 400
-        if not filled.strip():
-            return jsonify({"ok": False, "error": "empty_text"}), 400
-
-        body = _render_parsed_markdown(
-            source_filename=source_filename,
-            source_type=result.source_type,
-            text=filled,
-        )
-        payload = body.encode("utf-8")
-        content_path = out_dir / "content.md"
-        content_path.write_bytes(payload)
-
-        model = str(
-            current_app.config.get("KNOWLEDGE_FLOW_LLM_MODEL")
-            or "qwen3.5:9b"
-        )
-        meta = {
-            "source_filename": source_filename,
-            "source_type": result.source_type,
-            "source_sha256": source_sha,
-            "image_count": len(result.images),
-            "skipped_images": int((result.meta or {}).get("skipped_images") or 0),
-            "ocr_model": model if result.images else None,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "parser_meta": dict(result.meta or {}),
-            "images": saved_images,
-        }
-        (out_dir / "meta.json").write_text(
-            json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        rel = content_path.relative_to(root).as_posix()
-        return jsonify(
-            {
-                "ok": True,
-                "path": rel,
+        try:
+            result = parser.parse(data, filename=source_filename)
+            staging_out.mkdir(parents=True, exist_ok=False)
+            saved_images = _save_embedded_images(staging_out, result.images)
+            filled = fill_image_placeholders(
+                result.text,
+                result.images,
+                config=current_app.config,
+            )
+            filled = _annotate_image_files(filled, saved_images)
+            if not filled.strip():
+                raise ValueError("empty_text")
+            body = _render_parsed_markdown(
+                source_filename=source_filename,
+                source_type=result.source_type,
+                text=filled,
+            )
+            payload = body.encode("utf-8")
+            (staging_out / "content.md").write_bytes(payload)
+            model = str(
+                current_app.config.get("KNOWLEDGE_FLOW_LLM_MODEL") or "qwen3.5:9b"
+            )
+            meta = {
                 "source_filename": source_filename,
-                "parsed": True,
-                "cached": False,
+                "source_type": result.source_type,
+                "source_sha256": source_sha,
+                "upload_id": upload_id,
                 "image_count": len(result.images),
+                "skipped_images": int((result.meta or {}).get("skipped_images") or 0),
+                "ocr_model": model if result.images else None,
+                "created_at": created_at,
+                "parser_meta": dict(result.meta or {}),
                 "images": saved_images,
-                "byte_size": len(payload),
-                "message": (
-                    f"{source_filename} parse edilip {rel} olarak corpus'a yüklendi"
-                ),
             }
-        )
+            (staging_out / "meta.json").write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
 
-    if b"\x00" in data[:512]:
-        return jsonify({"ok": False, "error": "binary_rejected"}), 400
+            extracted_root = storage.corpus_root / _EXTRACTED_DIRNAME
+            extracted_root.mkdir(parents=True, exist_ok=True)
+            final_dir = _unique_extracted_dir(extracted_root, stem)
+            staging_out.rename(final_dir)
+            shutil.rmtree(staging, ignore_errors=True)
 
-    dest = _unique_dest(root, stem, suffix)
-    dest.write_bytes(data)
-    rel = dest.name
+            content_path = final_dir / "content.md"
+            rel = content_path.relative_to(storage.corpus_root).as_posix()
+            base_manifest.update(
+                {
+                    "status": "ready",
+                    "error_code": None,
+                    "corpus_relative_path": rel,
+                    "cached": False,
+                    "image_count": len(result.images),
+                    "images": saved_images,
+                }
+            )
+            _write_manifest(upload_dir, base_manifest)
+            assert _sha256_hex(original_path.read_bytes()) == source_sha
+            return jsonify(
+                {
+                    "ok": True,
+                    "upload_id": upload_id,
+                    "download_url": _download_url(upload_id),
+                    "path": rel,
+                    "source_filename": source_filename,
+                    "original_sha256": source_sha,
+                    "status": "ready",
+                    "parsed": True,
+                    "cached": False,
+                    "image_count": len(result.images),
+                    "images": saved_images,
+                    "byte_size": len(payload),
+                    "message": (
+                        f"{source_filename} parse edilip {rel} olarak tenant corpus'a yayımlandı"
+                    ),
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            shutil.rmtree(staging, ignore_errors=True)
+            err = "empty_text" if str(exc) == "empty_text" else "parse_failed"
+            detail = type(exc).__name__ if err == "parse_failed" else None
+            base_manifest["status"] = "failed"
+            base_manifest["error_code"] = err
+            _write_manifest(upload_dir, base_manifest)
+            assert _sha256_hex(original_path.read_bytes()) == source_sha
+            body = {
+                "ok": False,
+                "error": err,
+                "upload_id": upload_id,
+                "download_url": _download_url(upload_id),
+                "status": "failed",
+                "original_preserved": True,
+                "original_sha256": source_sha,
+            }
+            if detail:
+                body["detail"] = detail
+            return jsonify(body), 400
+
+    # Plain text → staging then atomic publish into tenant corpus root.
+    staging = upload_dir / "staging"
+    staging.mkdir(parents=True, exist_ok=True)
+    staging_file = staging / stored_name
+    staging_file.write_bytes(data)
+    final = _unique_dest(storage.corpus_root, stem, suffix)
+    staging_file.replace(final)
+    shutil.rmtree(staging, ignore_errors=True)
+    rel = final.relative_to(storage.corpus_root).as_posix()
+    base_manifest.update(
+        {
+            "status": "ready",
+            "corpus_relative_path": rel,
+            "cached": False,
+        }
+    )
+    _write_manifest(upload_dir, base_manifest)
+    assert _sha256_hex(original_path.read_bytes()) == source_sha
     return jsonify(
         {
             "ok": True,
+            "upload_id": upload_id,
+            "download_url": _download_url(upload_id),
             "path": rel,
             "source_filename": source_filename,
+            "original_sha256": source_sha,
+            "status": "ready",
             "parsed": False,
             "cached": False,
             "byte_size": len(data),
-            "message": f"{rel} corpus'a yüklendi",
+            "message": f"{rel} tenant corpus'a yüklendi",
         }
     )

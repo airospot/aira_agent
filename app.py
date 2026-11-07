@@ -17,7 +17,7 @@ from markupsafe import Markup
 
 load_dotenv(ROOT / ".env", override=True)
 
-_DIR_KEYS = ("AGENT_CORPUS_DIR",)
+_DIR_KEYS = ("AGENT_CORPUS_DIR", "TENANT_DATA_ROOT")
 
 _ENV_OVERLAY = (
     "SECRET_KEY",
@@ -37,6 +37,7 @@ _ENV_OVERLAY = (
     "KNOWLEDGE_FLOW_LLM_API_KEY",
     "KNOWLEDGE_FLOW_LLM_TIMEOUT_SECONDS",
     "AGENT_CORPUS_DIR",
+    "TENANT_DATA_ROOT",
     "AGENT_SUBMISSION_TIMEOUT_SECONDS",
 )
 
