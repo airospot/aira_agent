@@ -44,25 +44,58 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 ## Başlangıç durumu
 
 - Plan başlangıcı: `99de9f400c48f422348aae4af2d9025b68a7ff27`.
-- A00–A09 henüz bu plan kapsamında uygulanıp kabul edilmedi.
-- İlk aktif aşama: A00.
+- A00 kabul edilmiş PR head: `f1e152a8dd35bfd7d9b8a86ecca197ec374daec8`.
+- A00 merge commit (main): `535cb0e749accdb9e8cd5ede9c37f732c08e0f84`.
+- İlk açık aşama (bu teslim): A01.
 
 ## A00 teknik kayıt
 
 - Aşama: A00
 - Başlangıç commit: `99de9f400c48f422348aae4af2d9025b68a7ff27`
-- Teslim commit SHA: PR / teslim raporunda (self-SHA amend yok)
-- GitHub dalı ve PR: `codex/agent-a00-baseline-checks` — https://github.com/airospot/aira_agent/pull/1
+- Teslim / kabul edilen PR head SHA: `f1e152a8dd35bfd7d9b8a86ecca197ec374daec8`
+- Merge SHA (main): `535cb0e749accdb9e8cd5ede9c37f732c08e0f84`
+- GitHub dalı ve PR: `codex/agent-a00-baseline-checks` — https://github.com/airospot/aira_agent/pull/1 (birleştirildi)
 - Çalıştırma tarihi ve test profili: 2026-11-06; yerel Linux; `NATIVE_FLOW_A00_TEST` / unit pytest
 - Otomatik test komutları ve sonuçları: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **33 passed**
-- Gerçek PostgreSQL testi: geçti (`NATIVE_FLOW_A00_TEST`; + transcript/list MemoryReadError iken GET recovery)
+- Gerçek PostgreSQL testi: geçti (`NATIVE_FLOW_A00_TEST`)
 - Gerçek MCP entegrasyon testi: uygulanmaz
 - Gerçek model testi: uygulanmaz (unit testlerde LLM yok)
+- İnceleme: kabul (`f1e152a`)
+- Manuel UAT sahibi: proje sahibi
+- Manuel UAT: kabul (`f1e152a`)
+- Beklenen davranış ve gözlenen davranış: A00 hardening + recovery kabul edildi
+- İlgili run/submission kimlikleri ve güvenli kanıt: test ID’leri `a00-*` (secret yok)
+- Bilinen sınırlar ve açık kusurlar: TOCTOU symlink yarışı iddia edilmez
+- Geri alma: `535cb0e` öncesi `f1e152a` / `99de9f4`
+- Sonraki aşamaya geçiş talimatı: A01 (merge sonrası)
+
+## A01 teknik kayıt
+
+- Aşama: A01
+- Başlangıç commit: `535cb0e749accdb9e8cd5ede9c37f732c08e0f84` (A00 merge)
+- Teslim commit SHA: PR / teslim raporunda (self-SHA amend yok)
+- GitHub dalı ve PR: `codex/agent-a01-tool-registry` (URL teslimde)
+- Çalıştırma tarihi ve test profili: 2026-11-07; yerel Linux; `NATIVE_FLOW_A00_TEST` + unit
+- Otomatik test komutları ve sonuçları: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **45 passed** (inceleme düzeltmesi: boş izin + schema kopyası)
+- Gerçek PostgreSQL testi: A00 regresyonu için `NATIVE_FLOW_A00_TEST` geçti (A01 DB şema değişikliği yok)
+- Gerçek MCP entegrasyon testi: uygulanmaz
+- Gerçek model testi: uygulanmaz (scriptlenmiş karar / mock LLM)
 - İnceleme: BEKLEMEDE
 - Manuel UAT sahibi: proje sahibi
 - Manuel UAT: BEKLEMEDE
-- Beklenen davranış ve gözlenen davranış: ownership/eşleşme sonrası recovery hazır; transcript veya liste MemoryReadError olsa da cevap + bellek uyarısı; SessionIdentityError / session mismatch / new=1’de cevap yok; cookie’de tam cevap yok
-- İlgili run/submission kimlikleri ve güvenli kanıt: test ID’leri `a00-*` / `a00-rev*` (secret yok)
-- Bilinen sınırlar ve açık kusurlar: TOCTOU symlink yarışı iddia edilmez; production DB’de race test edilmez; kısa `agent_notice` (≤240) cookie’de kalabilir
-- Geri alma: önceki kabul `99de9f4` / `main`; şema için izole test DB’de `DROP TABLE IF EXISTS agent_submissions`; production veri silinmez
-- Sonraki aşamaya geçiş talimatı: beklemede (inceleme + manuel UAT PASS ve merge sonrası)
+- Beklenen davranış ve gözlenen davranış: dört native araç registry/executor üzerinden; if/elif yok; sandbox/katalog/event/trace korunur
+- İlgili run/submission kimlikleri ve güvenli kanıt: sentetik corpus fixture (secret yok)
+- Bilinen sınırlar ve açık kusurlar: timeout/retry metadata yalnız bilgi; A03 kontrolü iddia edilmez; MCP/skill/Run API yok
+- Geri alma: `main` @ `535cb0e`; şema değişikliği yok
+- Sonraki aşamaya geçiş talimatı: beklemede
+
+## A01 runtime hotfix (offset + embed + GPU kanıt)
+
+- Aşama: A01 hotfix (A02 yok)
+- Altyapı: agent repo dışı — `/home/airadev/Documents/Aira-Full-Stack/server_utlities/docker-compose.stack.yml` (yalnız ollama recreate notu; volume `/data/models` korundu)
+- Uygulama teslim SHA: `d294305e4f1e21976d5efb7226b767294dc5b522`
+- GitHub dalı ve PR: `codex/agent-a01-tool-registry` / PR #2
+- Otomatik test: `pytest -q` → önceki 45 + offset/embed/dsn testleri
+- Gerçek GPU/model: ayrı kanıt (mock değil); inceleme/UAT: **BEKLEMEDE**
+- Backfill komutu sunuldu; onaysız toplu çalıştırılmadı
+- Sonraki: merge/A02 yok — inceleme + kısa manuel UAT bekleniyor

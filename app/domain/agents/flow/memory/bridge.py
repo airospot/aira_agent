@@ -504,7 +504,6 @@ def _load_long_term_block(
                 page_type=AGENT_PAGE_TYPE,
                 exclude_session_id=session_id,
                 limit=5,
-                similarity_threshold=0.7,
                 customer_id=customer_id,
                 user_id=user_id,
                 strict=True,
@@ -828,7 +827,10 @@ def list_agent_conversations(
                 page_type=AGENT_PAGE_TYPE,
             )
             .group_by(ConversationMemory.session_id)
-            .order_by(func.max(ConversationMemory.created_at).desc())
+            .order_by(
+                func.max(ConversationMemory.created_at).desc(),
+                ConversationMemory.session_id.asc(),
+            )
             .offset(max(0, int(offset or 0)))
             .limit(max(1, min(int(limit), 100)))
             .all()

@@ -1,8 +1,7 @@
-"""Knowledge Agent Flow runner — file tools + show_image."""
+"""Knowledge Agent Flow runner — registry/executor-backed native file tools."""
 
 from __future__ import annotations
 
-import json
 import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -20,20 +19,20 @@ from app.domain.agents.flow.execution.events import (
 from app.domain.agents.flow.execution.llm.factory import (
     create_flow_llm_client,
 )
+from app.domain.agents.flow.execution.answer_show_image import (
+    enrich_answer_with_show_images,
+)
 from app.domain.agents.flow.execution.run_agent_loop import (
     run_agent_loop,
 )
-from app.domain.agents.flow.tools import file_name_search as file_name_search_execute
-from app.domain.agents.flow.tools import file_read as file_read_execute
-from app.domain.agents.flow.tools import file_search as file_search_execute
-from app.domain.agents.flow.tools import show_image as show_image_execute
-
-_FILE_READ_TOOL_JSON = Path(file_read_execute.__file__).resolve().parent / "tool.json"
-_FILE_SEARCH_TOOL_JSON = Path(file_search_execute.__file__).resolve().parent / "tool.json"
-_FILE_NAME_SEARCH_TOOL_JSON = (
-    Path(file_name_search_execute.__file__).resolve().parent / "tool.json"
+from app.domain.agents.flow.tooling import (
+    ToolExecutor,
+    ToolNotPermittedError,
+    ToolNotRegisteredError,
+    ToolRegistry,
+    build_native_tool_registry,
 )
-_SHOW_IMAGE_TOOL_JSON = Path(show_image_execute.__file__).resolve().parent / "tool.json"
+from app.domain.agents.flow.tooling.native_bootstrap import NATIVE_TOOL_NAMES
 
 _FILE_READ_ARG_KEYS = ("path",)
 _FILE_SEARCH_ARG_KEYS = ("query", "glob", "limit")
@@ -49,38 +48,33 @@ def run_knowledge_agent(
     dataset_dir: str | Path | None = None,  # unused; kept for call-site compat
     on_event: Callable[[Mapping[str, Any]], Any] | None = None,
     caller_context: Mapping[str, Any] | None = None,
+    tool_registry: ToolRegistry | None = None,
+    permitted_tool_names: set[str] | frozenset[str] | None = None,
 ) -> dict[str, Any]:
-    """Run one agent turn with corpus file tools only."""
+    """Run one agent turn with corpus file tools via shared registry/executor."""
     del dataset_dir, caller_context  # legacy kwargs ignored
     client = create_flow_llm_client(config)
-    file_read_tool = json.loads(_FILE_READ_TOOL_JSON.read_text(encoding="utf-8"))
-    file_search_tool = json.loads(_FILE_SEARCH_TOOL_JSON.read_text(encoding="utf-8"))
-    file_name_search_tool = json.loads(
-        _FILE_NAME_SEARCH_TOOL_JSON.read_text(encoding="utf-8")
-    )
-    show_image_tool = json.loads(_SHOW_IMAGE_TOOL_JSON.read_text(encoding="utf-8"))
-    permitted_tools = [
-        file_name_search_tool,
-        file_search_tool,
-        file_read_tool,
-        show_image_tool,
-    ]
-    file_read_name = file_read_tool["name"]
-    file_search_name = file_search_tool["name"]
-    file_name_search_name = file_name_search_tool["name"]
-    show_image_name = show_image_tool["name"]
-    permitted_tool_names = {
-        file_read_name,
-        file_search_name,
-        file_name_search_name,
-        show_image_name,
-    }
+
+    registry = tool_registry or build_native_tool_registry()
+    if permitted_tool_names is None:
+        permitted = frozenset(NATIVE_TOOL_NAMES)
+    else:
+        permitted = frozenset(str(n).strip() for n in permitted_tool_names if str(n).strip())
+    # Catalog and execution share the same registry + allowlist (no separate executor inject).
+    executor = ToolExecutor(registry, permitted_names=permitted)
+
+    permitted_tools = registry.catalog(names=permitted)
     tool_names = {
-        "file_read": file_read_name,
-        "file_search": file_search_name,
-        "file_name_search": file_name_search_name,
-        "show_image": show_image_name,
+        "file_read": "file_read",
+        "file_search": "file_search",
+        "file_name_search": "file_name_search",
+        "show_image": "show_image",
     }
+    # Prefer catalog names when present (keeps aliases stable if renamed in JSON).
+    for entry in permitted_tools:
+        name = entry.get("name")
+        if isinstance(name, str) and name in tool_names:
+            tool_names[name] = name
 
     flow_started_at = time.perf_counter()
     step = 0
@@ -164,35 +158,20 @@ def run_knowledge_agent(
     def _execute_tool(decision):
         nonlocal last_tool
         tool = decision.get("tool")
-        if tool not in permitted_tool_names:
+        if not isinstance(tool, str) or not tool:
             _emit("error", status="tool_not_permitted")
             raise ValueError("tool_not_permitted")
         _emit("tool_started", action="CALL_TOOL", tool=tool)
         started = time.perf_counter()
         try:
-            if tool == file_read_name:
-                observation = file_read_execute.execute_file_read(
-                    decision.get("arguments"),
-                    config=config,
-                )
-            elif tool == file_search_name:
-                observation = file_search_execute.execute_file_search(
-                    decision.get("arguments"),
-                    config=config,
-                )
-            elif tool == file_name_search_name:
-                observation = file_name_search_execute.execute_file_name_search(
-                    decision.get("arguments"),
-                    config=config,
-                )
-            elif tool == show_image_name:
-                observation = show_image_execute.execute_show_image(
-                    decision.get("arguments"),
-                    config=config,
-                )
-            else:
-                _emit("error", status="tool_not_permitted")
-                raise ValueError("tool_not_permitted")
+            observation = executor.execute(
+                tool,
+                decision.get("arguments"),
+                config=config,
+            )
+        except (ToolNotPermittedError, ToolNotRegisteredError):
+            _emit("error", status="tool_not_permitted")
+            raise ValueError("tool_not_permitted")
         except Exception as exc:  # noqa: BLE001
             _emit(
                 "error",
@@ -219,7 +198,7 @@ def run_knowledge_agent(
             decision_trace[-1]["tool_status"] = obs_status
             decision_trace[-1]["observation"] = _summarize_observation(
                 observation,
-                tool=tool if isinstance(tool, str) else None,
+                tool=tool,
                 tool_names=tool_names,
             )
         return observation
@@ -237,6 +216,20 @@ def run_knowledge_agent(
     decision = result.get("decision")
     if isinstance(decision, dict) and decision.get("action") is not None:
         action = str(decision.get("action"))
+    # Persist-ready ANSWER: verified current-turn show_image URLs become Markdown images
+    # so refresh/history do not depend on the model emitting ![ ](...).
+    if (
+        str(status) == "ANSWER"
+        and isinstance(decision, dict)
+        and isinstance(decision.get("answer"), str)
+    ):
+        decision = dict(decision)
+        decision["answer"] = enrich_answer_with_show_images(
+            decision.get("answer"),
+            result.get("observations"),
+        )
+        result = dict(result)
+        result["decision"] = decision
     _emit(
         "flow_completed",
         action=action,

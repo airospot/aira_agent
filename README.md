@@ -72,9 +72,10 @@ CONFIG araması için `KNOWLEDGE_FLOW_CONFIG_CORPUS_CUSTOMER_ALLOWLIST` dolu olm
 | OpenAI uyumlu LLM | `KNOWLEDGE_FLOW_LLM_BASE_URL`, `KNOWLEDGE_FLOW_LLM_MODEL`, `KNOWLEDGE_FLOW_LLM_API_KEY` | `FlowLlmClient` |
 | Auth Provider JWKS | `AUTH_PROVIDER_URL`, `AUTH_SITE_SLUG` | `jwt_required` |
 | PostgreSQL | `DATABASE_URL` | konuşma belleği |
+| Ollama embed | `KNOWLEDGE_FLOW_EMBED_BASE_URL`, `KNOWLEDGE_FLOW_EMBED_MODEL`, `KNOWLEDGE_FLOW_EMBED_DIMENSIONS`, `KNOWLEDGE_FLOW_EMBED_TIMEOUT_SECONDS` | `ollama_embed` / semantik bellek |
 | SQL Server | `SQLSERVER_*`, `SQLSERVER_QUERY_*` | `database_live_query` |
 | Rerank proxy | `RERANK_BASE_URL` | `config_parameter_semantic_rerank` |
 
-Anlamsal uzun süreli bellek, çağrı anında `langchain_openai` veya `langchain_community` embedding sınıflarını yükler. Bu paketler `requirements.txt` içindedir.
+Anlamsal uzun süreli bellek yalnız Ollama `qwen3-embedding:4b` + `dimensions=1536` profilini kullanır (`app/adapters/db/embeddings/ollama_embed.py`). OpenAI/nomic sessiz fallback yoktur. Profil etiketi: `docs/EMBEDDING_PROFILE.md`.
 
 Ayrıntı: `CHANGES.md`, `DEPENDENCY_GRAPH.md`, `TOOLS.md`, `VERIFICATION.md`.

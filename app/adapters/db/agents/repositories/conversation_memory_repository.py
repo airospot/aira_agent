@@ -31,7 +31,27 @@ class ConversationMemoryRepository:
             raise ValueError("connection_string is required and cannot be None or empty")
         
         self.connection_string = connection_string
-        logger.debug(f"ConversationMemoryRepository initialized with connection string: {connection_string[:50]}...")
+        logger.debug(
+            "ConversationMemoryRepository initialized (dsn_host=%s)",
+            self._safe_dsn_host(connection_string),
+        )
+
+    @staticmethod
+    def _safe_dsn_host(dsn: str) -> str:
+        """Log-safe DSN fragment — never emit userinfo/password."""
+        raw = str(dsn or "").strip()
+        if not raw:
+            return "?"
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(raw)
+            host = parsed.hostname or "?"
+            port = parsed.port or 5432
+            db = (parsed.path or "/").lstrip("/") or "?"
+            return f"{host}:{port}/{db}"
+        except Exception:  # noqa: BLE001
+            return "unparsed"
     
     def _get_connection(self):
         """Get database connection"""
@@ -41,24 +61,52 @@ class ConversationMemoryRepository:
             cursor.execute("SET timezone = 'UTC'")
         return conn
     
-    def list_conversations(self, customer_id: int, user_id: int, page_type: str = 'chat', limit: int = 10) -> List[Dict[str, Any]]:
-        """List all conversations grouped by session_id
+    def list_conversations(
+        self,
+        customer_id: int,
+        user_id: int,
+        page_type: str = "chat",
+        limit: int = 10,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """List conversations grouped by session_id with parameterized OFFSET.
         
         Args:
             customer_id: Customer ID
             user_id: User ID
             page_type: Page type filter ('chat' or 'agent_tools')
             limit: Maximum number of conversations to return
+            offset: Non-negative row offset (validated)
             
         Returns:
             List of conversation summaries with session_id, title, dates
         """
+        try:
+            offset_n = int(offset)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid offset: {offset!r}") from exc
+        if offset_n < 0:
+            raise ValueError(f"Invalid offset: {offset_n}. Must be >= 0")
+        try:
+            limit_n = int(limit)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid limit: {limit!r}") from exc
+        if limit_n < 1 or limit_n > 100:
+            raise ValueError(f"Invalid limit: {limit_n}. Must be between 1 and 100")
+
         conn = self._get_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
         try:
-            logger.info(f"🔍 [REPO] list_conversations: customer_id={customer_id}, user_id={user_id}, page_type={page_type}, limit={limit}")
-            logger.info(f"🔍 [REPO] Connection string: {self.connection_string[:50]}...")
+            logger.info(
+                "list_conversations customer_id=%s user_id=%s page_type=%s limit=%s offset=%s dsn=%s",
+                customer_id,
+                user_id,
+                page_type,
+                limit_n,
+                offset_n,
+                self._safe_dsn_host(self.connection_string),
+            )
             
             # DEBUG: Check total records first
             cursor.execute("""
@@ -71,7 +119,8 @@ class ConversationMemoryRepository:
             total_count = cursor.fetchone()['total']
             logger.info(f"🔍 [REPO] Total records in DB (before grouping): {total_count}")
             
-            # Get session IDs with metadata (grouped by session_id)
+            # Get session IDs with metadata (grouped by session_id).
+            # Tie-break with session_id for stable pagination across equal timestamps.
             cursor.execute("""
                 SELECT 
                     session_id,
@@ -82,9 +131,9 @@ class ConversationMemoryRepository:
                   AND user_id = %s 
                   AND page_type = %s
                 GROUP BY session_id
-                ORDER BY MAX(created_at) DESC
-                LIMIT %s
-            """, (customer_id, user_id, page_type, limit))
+                ORDER BY MAX(created_at) DESC, session_id ASC
+                LIMIT %s OFFSET %s
+            """, (customer_id, user_id, page_type, limit_n, offset_n))
             
             sessions = cursor.fetchall()
             logger.info(f"🔍 [REPO] Found {len(sessions)} sessions for page_type={page_type} (total records: {total_count})")

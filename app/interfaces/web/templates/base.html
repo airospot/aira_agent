@@ -1,9 +1,24 @@
 <!doctype html>
-<html lang="tr">
+<html lang="tr" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f5f6">
   <title>{% block title %}Native Knowledge Flow{% endblock %}</title>
+  <script>
+    (function () {
+      var theme = "light";
+      try {
+        var stored = localStorage.getItem("nkf-theme");
+        if (stored === "light" || stored === "dark") theme = stored;
+        else if (window.matchMedia("(prefers-color-scheme: dark)").matches) theme = "dark";
+      } catch (e) {}
+      document.documentElement.setAttribute("data-theme", theme);
+      document.documentElement.style.colorScheme = theme;
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute("content", theme === "dark" ? "#000000" : "#f5f5f6");
+    })();
+  </script>
   <link rel="stylesheet" href="{{ url_for('agent_static', filename='css/app.css') }}">
   {% block extra_css %}{% endblock %}
 </head>
@@ -21,6 +36,13 @@
         Asistan
       </a>
     </nav>
+    <div class="sidebar-footer">
+      <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false" aria-label="Koyu temaya geç">
+        <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M21 14.5A8.5 8.5 0 0 1 9.5 3 7 7 0 1 0 21 14.5z"/></svg>
+        <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="currentColor"/><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></g></svg>
+        <span data-theme-label>Koyu tema</span>
+      </button>
+    </div>
   </aside>
   <main class="main main-content">
     <div class="page-content-wrapper">
@@ -37,5 +59,47 @@
     </div>
   </main>
   {% block scripts %}{% endblock %}
+  <script>
+    (function () {
+      var KEY = "nkf-theme";
+      function current() {
+        return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+      }
+      function apply(theme) {
+        document.documentElement.setAttribute("data-theme", theme);
+        document.documentElement.style.colorScheme = theme;
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", theme === "dark" ? "#000000" : "#f5f5f6");
+        document.querySelectorAll("[data-theme-toggle]").forEach(function (btn) {
+          var toDark = theme !== "dark";
+          btn.setAttribute("aria-pressed", theme === "dark" ? "true" : "false");
+          btn.setAttribute("aria-label", toDark ? "Koyu temaya geç" : "Açık temaya geç");
+          var label = btn.querySelector("[data-theme-label]");
+          if (label) label.textContent = toDark ? "Koyu tema" : "Açık tema";
+        });
+      }
+      function init() {
+        apply(current());
+        document.querySelectorAll("[data-theme-toggle]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            var next = current() === "dark" ? "light" : "dark";
+            try { localStorage.setItem(KEY, next); } catch (e) {}
+            apply(next);
+          });
+        });
+        var media = window.matchMedia("(prefers-color-scheme: dark)");
+        if (media.addEventListener) {
+          media.addEventListener("change", function (ev) {
+            var stored = null;
+            try { stored = localStorage.getItem(KEY); } catch (e) {}
+            if (stored === "light" || stored === "dark") return;
+            apply(ev.matches ? "dark" : "light");
+          });
+        }
+      }
+      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+      else init();
+    })();
+  </script>
 </body>
 </html>

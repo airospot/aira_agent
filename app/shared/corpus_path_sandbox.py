@@ -1,4 +1,4 @@
-"""Shared corpus path sandbox for file_read / file_search."""
+"""Agent corpus path sandbox (resolve root; keep reads inside the corpus tree)."""
 
 from __future__ import annotations
 

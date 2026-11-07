@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.domain.agents.flow.tools._corpus import (
+from app.shared.corpus_path_sandbox import (
     is_resolved_under_corpus,
     resolve_under_corpus,
 )
