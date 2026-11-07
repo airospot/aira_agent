@@ -31,14 +31,22 @@ class ConversationService:
         """
         self.conversation_repository = conversation_repository
     
-    def list_conversations(self, customer_id: int, user_id: int, page_type: str = 'chat', limit: int = 10) -> List[Dict[str, Any]]:
-        """List conversations for user
+    def list_conversations(
+        self,
+        customer_id: int,
+        user_id: int,
+        page_type: str = "chat",
+        limit: int = 10,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """List conversations for user with validated OFFSET pagination.
         
         Args:
             customer_id: Customer ID
             user_id: User ID
             page_type: Page type filter
             limit: Maximum number of conversations
+            offset: Non-negative pagination offset
             
         Returns:
             List of conversation summaries
@@ -55,13 +63,20 @@ class ConversationService:
         
         if limit < 1 or limit > 100:
             raise ValueError(f"Invalid limit: {limit}. Must be between 1 and 100")
+        try:
+            offset_n = int(offset)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid offset: {offset!r}") from exc
+        if offset_n < 0:
+            raise ValueError(f"Invalid offset: {offset_n}. Must be >= 0")
         
         # Repository call
         conversations = self.conversation_repository.list_conversations(
             customer_id=customer_id,
             user_id=user_id,
             page_type=page_type,
-            limit=limit
+            limit=limit,
+            offset=offset_n,
         )
         
         logger.debug(f"Retrieved {len(conversations)} conversations for user {user_id}")

@@ -3,6 +3,7 @@ Memory Service for Conversation Memory Management
 Handles short-term (last 10 messages) and long-term (unlimited) memory
 """
 
+import json
 import logging
 import os
 from datetime import datetime, timedelta
@@ -11,6 +12,11 @@ from flask import session
 from app.adapters.db.agents.models.memory import ConversationMemory
 from app.adapters.db.agents.models.base import db
 from app.core.config_manager import get_config_manager_for_customer
+
+# Qwen3-Embedding profile: synthetic TR/cross-lingual pairs (docs/EMBEDDING_PROFILE.md).
+# Related ~0.48–0.70; unrelated ~0.16–0.20. Floor 0.45 keeps EN→TR; rejects noise.
+DEFAULT_SEMANTIC_SIMILARITY_THRESHOLD = 0.45
+
 
 logger = logging.getLogger(__name__)
 
@@ -111,71 +117,34 @@ def get_user_id() -> int:
     return int(user_id)
 
 
-def _create_embedding(text: str, customer_id: Optional[int] = None, user_id: Optional[int] = None) -> Optional[List[float]]:
+def _create_embedding(
+    text: str,
+    customer_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+    *,
+    role: str = "document",
+) -> Optional[List[float]]:
+    """Create embedding via configured Ollama profile (no OpenAI / nomic fallback).
+
+    customer_id/user_id kept for call-site compatibility; unused by the adapter.
+    Returns None when embedding is unavailable — callers must not fail the turn.
     """
-    Create embedding for text using OpenAI (priority) or Ollama (fallback)
-    
-    Args:
-        text: Text to create embedding for
-        customer_id: Customer ID (optional, will get from session if not provided)
-        user_id: User ID (optional, will get from session if not provided)
-    
-    Returns:
-        List of floats (embedding vector) or None if failed
-    """
+    del customer_id, user_id
     try:
-        # Get config_manager - handle both request context and non-context cases
-        try:
-            if customer_id:
-                from app.core.config_manager import get_config_manager_for_customer
-                config_manager = get_config_manager_for_customer(customer_id=customer_id, user_id=user_id)
-            else:
-                config_manager = get_config_manager_for_customer()
-        except Exception as e:
-            # Fallback: try to get customer_id/user_id from session or use default
-            try:
-                customer_id = get_customer_id()
-                user_id = get_user_id()
-                from app.core.config_manager import get_config_manager_for_customer
-                config_manager = get_config_manager_for_customer(customer_id=customer_id, user_id=user_id)
-            except Exception as e2:
-                logger.error(f"Could not get config_manager: {e2}")
-                # Last resort: use global config_manager
-                from app.core.config_manager import config_manager
-        
-        # Try OpenAI first
-        try:
-            api_key = config_manager._get_openai_api_key()
-            if api_key:
-                from langchain_openai import OpenAIEmbeddings
-                os.environ['OPENAI_API_KEY'] = api_key
-                embeddings_model = OpenAIEmbeddings()
-                embedding = embeddings_model.embed_query(text)
-                return embedding
-        except Exception as e:
-            logger.warning(f"OpenAI embedding failed: {e}, trying Ollama...")
-        
-        # Fallback to Ollama
-        try:
-            from langchain_community.embeddings import OllamaEmbeddings
-            ollama_url = config_manager.get_config('ollama_url') or "http://localhost:11434"
-            embeddings_model = OllamaEmbeddings(
-                model="nomic-embed-text",
-                base_url=ollama_url
-            )
-            embedding = embeddings_model.embed_query(text)
-            
-            # Handle Ollama 768-dim embeddings (pad to 1536)
-            if len(embedding) == 768:
-                embedding = list(embedding) + [0.0] * (1536 - 768)
-            
-            return embedding
-        except Exception as e:
-            logger.error(f"Ollama embedding failed: {e}")
-            return None
-            
+        from app.domain.agents.embeddings.ollama_embed import (
+            EmbeddingDimensionError,
+            embed_document,
+            embed_query,
+        )
+
+        if role == "query":
+            return embed_query(text)
+        return embed_document(text)
+    except EmbeddingDimensionError as e:
+        logger.error("Embedding dimension mismatch (no pad/truncate): %s", e)
+        return None
     except Exception as e:
-        logger.error(f"Error creating embedding: {e}")
+        logger.error("Embedding unavailable: %s", e)
         return None
 
 
@@ -256,19 +225,25 @@ def save_message(
         # Create and store embedding if requested (after commit to ensure memory.id exists)
         if create_embedding:
             try:
-                embedding = _create_embedding(message_content, customer_id=customer_id, user_id=user_id)
-                if embedding and len(embedding) == 1536:
-                    # Store embedding using raw SQL (pgvector type)
-                    # Use direct psycopg2 connection to avoid request context issues
+                from app.domain.agents.embeddings.ollama_embed import (
+                    EMBEDDING_DIMENSIONS,
+                    profile_metadata,
+                )
+
+                embedding = _create_embedding(
+                    message_content,
+                    customer_id=customer_id,
+                    user_id=user_id,
+                    role="document",
+                )
+                if embedding and len(embedding) == EMBEDDING_DIMENSIONS:
                     import psycopg2
                     from app.core.config_manager import get_config_manager_for_customer
                     try:
-                        # Try to get config_manager with customer_id
                         try:
                             config_manager = get_config_manager_for_customer(customer_id=customer_id)
                             conn = config_manager._get_connection()
                         except Exception:
-                            # Fallback: direct connection
                             import os
                             from dotenv import load_dotenv
                             load_dotenv()
@@ -287,6 +262,17 @@ def save_message(
                                 SET embedding = %s::vector 
                                 WHERE id = %s
                             """, (embedding, memory.id))
+                            # Profile tag in metadata — never treat unknown rows as current profile.
+                            meta = dict(memory.metadata or {}) if isinstance(memory.metadata, dict) else {}
+                            meta.update(profile_metadata())
+                            cursor.execute(
+                                """
+                                UPDATE conversation_memory
+                                SET metadata = COALESCE(metadata, '{}'::jsonb) || %s::jsonb
+                                WHERE id = %s
+                                """,
+                                (json.dumps(meta), memory.id),
+                            )
                             conn.commit()
                         except Exception as e:
                             conn.rollback()
@@ -297,7 +283,10 @@ def save_message(
                     except Exception as e:
                         logger.error(f"Failed to get database connection for embedding: {e}")
                 else:
-                    logger.warning(f"Invalid embedding dimension: {len(embedding) if embedding else 0}")
+                    logger.warning(
+                        "Embedding skipped/unavailable (dim=%s); conversation row kept",
+                        len(embedding) if embedding else 0,
+                    )
             except Exception as e:
                 logger.error(f"Failed to create embedding: {e}")
         
@@ -587,29 +576,24 @@ def get_long_term_memory_semantic(
     page_type: Optional[str] = None,
     exclude_session_id: Optional[str] = None,
     limit: int = 5,
-    similarity_threshold: float = 0.7,
+    similarity_threshold: float = DEFAULT_SEMANTIC_SIMILARITY_THRESHOLD,
     customer_id: Optional[int] = None,
     user_id: Optional[int] = None,
     *,
     strict: bool = False,
 ) -> List[Dict[str, Any]]:
-    """
-    Get long-term memory using semantic search (vector similarity)
-    
-    Args:
-        query: Search query text
-        page_type: Filter by page type ('chat' or 'agent_tools'), None for all
-        exclude_session_id: Exclude messages from this session_id (to avoid duplicates with short-term)
-        limit: Maximum number of results
-        similarity_threshold: Minimum similarity score (0.0-1.0)
-        strict: Re-raise identity/DB errors (embedding miss still returns [] — product policy)
-    
-    Returns:
-        List of dicts with ConversationMemory objects and similarity scores
-        Format: [{'memory': ConversationMemory, 'similarity': float}, ...]
+    """Get long-term memory using semantic search (same embedding profile only).
+
+    Empty/unavailable embedding → [] (conversation turn still succeeds).
+    Identity/DB failures re-raise when ``strict=True`` and are not remapped to
+    embedding miss.
     """
     try:
-        # Get customer_id and user_id if not provided
+        from app.domain.agents.embeddings.ollama_embed import (
+            EMBEDDING_DIMENSIONS,
+            embedding_config_from_env,
+        )
+
         if customer_id is None:
             try:
                 customer_id = get_customer_id()
@@ -626,25 +610,18 @@ def get_long_term_memory_semantic(
                 if strict:
                     raise
                 return []
-        
-        # Create query embedding
-        query_embedding = _create_embedding(query, customer_id=customer_id, user_id=user_id)
-        if not query_embedding or len(query_embedding) != 1536:
-            logger.warning(f"Failed to create query embedding or invalid dimension: {len(query_embedding) if query_embedding else 0}")
-            # Embedding absent is an empty retrieval result, not a hard DB failure.
-            return []
-        
-        # Get database connection - use direct connection to avoid request context issues
+
+        cfg = embedding_config_from_env()
+        profile = cfg["profile"]
+
         import psycopg2
-        import os
         from dotenv import load_dotenv
         load_dotenv()
-        
+
         try:
             config_manager = get_config_manager_for_customer(customer_id=customer_id)
             conn = config_manager._get_connection()
         except Exception:
-            # Fallback: direct connection
             conn = psycopg2.connect(
                 host=os.getenv('POSTGRES_HOST', 'localhost'),
                 port=int(os.getenv('POSTGRES_PORT', 5432)),
@@ -652,41 +629,77 @@ def get_long_term_memory_semantic(
                 user=os.getenv('POSTGRES_USER', 'postgres'),
                 password=os.getenv('POSTGRES_PASSWORD', 'postgres')
             )
-        
+
         cursor = conn.cursor()
-        
         try:
-            # Build SQL query with filters
-            # Note: Search both short_term and long_term (as short_term records also have embeddings)
+            # Unknown/legacy rows without matching profile are excluded (not assumed Qwen).
+            count_sql = """
+                SELECT COUNT(*)
+                FROM conversation_memory
+                WHERE customer_id = %s
+                  AND user_id = %s
+                  AND embedding IS NOT NULL
+                  AND metadata->>'embedding_profile' = %s
+            """
+            count_params: list[Any] = [customer_id, user_id, profile]
+            if page_type:
+                count_sql += " AND page_type = %s"
+                count_params.append(page_type)
+            if exclude_session_id:
+                count_sql += " AND session_id != %s"
+                count_params.append(exclude_session_id)
+            cursor.execute(count_sql, count_params)
+            profile_count = int(cursor.fetchone()[0] or 0)
+            if profile_count == 0:
+                logger.info(
+                    "semantic_retrieval status=skipped_no_profile_vectors "
+                    "profile=%s customer_id=%s user_id=%s",
+                    profile,
+                    customer_id,
+                    user_id,
+                )
+                return []
+
+            query_embedding = _create_embedding(
+                query, customer_id=customer_id, user_id=user_id, role="query"
+            )
+            if not query_embedding or len(query_embedding) != EMBEDDING_DIMENSIONS:
+                logger.warning(
+                    "semantic_retrieval status=embedding_unavailable dim=%s profile=%s",
+                    len(query_embedding) if query_embedding else 0,
+                    profile,
+                )
+                return []
+
             sql = """
-                SELECT 
+                SELECT
                     id,
                     1 - (embedding <=> %s::vector) as similarity
                 FROM conversation_memory
                 WHERE customer_id = %s
                   AND user_id = %s
                   AND embedding IS NOT NULL
+                  AND metadata->>'embedding_profile' = %s
             """
-            params = [query_embedding, customer_id, user_id]
-            
+            params: list[Any] = [query_embedding, customer_id, user_id, profile]
+
             if page_type:
                 sql += " AND page_type = %s"
                 params.append(page_type)
-            
+
             if exclude_session_id:
                 sql += " AND session_id != %s"
                 params.append(exclude_session_id)
-            
+
             sql += """
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
             """
             params.extend([query_embedding, limit])
-            
+
             cursor.execute(sql, params)
             results = cursor.fetchall()
-            
-            # Filter by similarity threshold and load ConversationMemory objects
+
             memory_results = []
             for memory_id, similarity in results:
                 if similarity >= similarity_threshold:
@@ -696,22 +709,24 @@ def get_long_term_memory_semantic(
                             'memory': memory,
                             'similarity': float(similarity)
                         })
-            
-            if memory_results:
-                logger.info(f"🔍 [SEMANTIC_SEARCH] Found {len(memory_results)} semantically similar long-term messages (threshold: {similarity_threshold})")
-            else:
-                logger.debug(f"Found 0 semantically similar long-term messages (threshold: {similarity_threshold})")
+
+            logger.info(
+                "semantic_retrieval status=ok hits=%s threshold=%s profile=%s",
+                len(memory_results),
+                similarity_threshold,
+                profile,
+            )
             return memory_results
-            
+
         except Exception as e:
-            logger.error(f"Error in semantic search: {e}")
+            logger.error(f"Error in semantic search (DB path): {e}")
             if strict:
                 raise
             return []
         finally:
             cursor.close()
             conn.close()
-            
+
     except Exception as e:
         logger.error(f"Error getting long-term memory semantic: {e}")
         if strict:
@@ -831,7 +846,7 @@ def get_conversation_context(
                     page_type=page_type,
                     exclude_session_id=session_id,  # Exclude current session to avoid duplicates
                     limit=5,
-                    similarity_threshold=0.7,
+                    similarity_threshold=DEFAULT_SEMANTIC_SIMILARITY_THRESHOLD,
                     customer_id=customer_id,
                     user_id=user_id
                 )

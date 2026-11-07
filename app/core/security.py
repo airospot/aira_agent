@@ -534,6 +534,54 @@ def _hydrate_session_from_jwt(payload: dict) -> None:
         role_source = "jwt"
         rbac_data = None
 
+        # AUTH_DISABLED local profile: roles already seeded on bypass payload.
+        # Skip provider RBAC chatter; do not relax production JWT/role gates.
+        if auth_disabled():
+            preferred_slug = (
+                current_app.config.get("AUTH_SITE_SLUG") or "airacoder"
+            ).strip() or "airacoder"
+            session["site_roles"] = list(payload.get("roles") or [])
+            session["site_permissions"] = list(payload.get("permissions") or [])
+            session["site_roles_slug"] = preferred_slug
+            session["site_roles_source"] = "auth_disabled_bypass"
+            session["site_slug"] = preferred_slug
+            role_display_to_slug = {
+                "Super Admin": "super_admin",
+                "Admin": "admin",
+            }
+            raw_slug = (
+                payload.get("role_slug")
+                or payload.get("user_role")
+                or role_display_to_slug.get(role_display, "")
+            )
+            raw_norm = (
+                str(raw_slug).strip().lower().replace("-", "_").replace(" ", "_")
+                if raw_slug
+                else ""
+            )
+            slug_alias = {
+                "super_admin": "super_admin",
+                "system_owner": "super_admin",
+                "admin": "admin",
+                "administrator": "admin",
+            }
+            role_slug_canonical = slug_alias.get(raw_norm, raw_norm) or None
+            session["user"] = {
+                "id": session.get("user_id"),
+                "name": session.get("user_name") or session.get("user_email") or "User",
+                "email": session.get("user_email"),
+                "role": role_display,
+                "role_slug": role_slug_canonical,
+                "first_name": first_name,
+                "last_name": last_name,
+            }
+            current_app.logger.debug(
+                "[HYDRATE] AUTH_DISABLED bypass role=%s role_slug=%s",
+                role_display,
+                role_slug_canonical,
+            )
+            return
+
         # If JWT lacks role info, fetch RBAC from Auth Provider (source of truth).
         def _fetch_site_rbac(token: str, site_slug: str | None) -> dict:
             try:

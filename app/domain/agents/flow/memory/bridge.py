@@ -828,7 +828,10 @@ def list_agent_conversations(
                 page_type=AGENT_PAGE_TYPE,
             )
             .group_by(ConversationMemory.session_id)
-            .order_by(func.max(ConversationMemory.created_at).desc())
+            .order_by(
+                func.max(ConversationMemory.created_at).desc(),
+                ConversationMemory.session_id.asc(),
+            )
             .offset(max(0, int(offset or 0)))
             .limit(max(1, min(int(limit), 100)))
             .all()

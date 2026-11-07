@@ -88,3 +88,14 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - Bilinen sınırlar ve açık kusurlar: timeout/retry metadata yalnız bilgi; A03 kontrolü iddia edilmez; MCP/skill/Run API yok
 - Geri alma: `main` @ `535cb0e`; şema değişikliği yok
 - Sonraki aşamaya geçiş talimatı: beklemede
+
+## A01 runtime hotfix (offset + embed + GPU kanıt)
+
+- Aşama: A01 hotfix (A02 yok)
+- Altyapı: agent repo dışı — `/home/airadev/Documents/Aira-Full-Stack/server_utlities/docker-compose.stack.yml` (yalnız ollama recreate notu; volume `/data/models` korundu)
+- Uygulama teslim SHA: push sonrası head (bu kayıt güncellenir)
+- GitHub dalı ve PR: `codex/agent-a01-tool-registry` / PR #2
+- Otomatik test: `pytest -q` → önceki 45 + offset/embed/dsn testleri
+- Gerçek GPU/model: ayrı kanıt (mock değil); inceleme/UAT: **BEKLEMEDE**
+- Backfill komutu sunuldu; onaysız toplu çalıştırılmadı
+- Sonraki: merge/A02 yok — inceleme + kısa manuel UAT bekleniyor
