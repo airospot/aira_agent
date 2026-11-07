@@ -145,10 +145,10 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **128 passed**
 - Gerçek PostgreSQL testi: geçti (`NATIVE_FLOW_A00_TEST` URL ile suite; A03 şema migration yok)
 - Gerçek MCP entegrasyon testi: uygulanmaz
-- Gerçek model testi: beklemede
+- Gerçek model testi: browser UAT yapıldı (aşağı)
 - İnceleme: **BEKLEMEDE**
-- Manuel UAT sahibi: proje sahibi
-- Manuel UAT: **BEKLEMEDE**
+- Manuel UAT sahibi: agent (browser) + proje sahibi onayı
+- Manuel UAT: **KISMİ GEÇTİ** (büyük TXT normal profil LLM hatası ayrı not)
 - Uygulanan timeout/bütçe (`.env` / `.env.example`; kodda numeric default yok):
   - `AGENT_MAX_STEPS=8`
   - `AGENT_RUN_TIMEOUT_SECONDS=180` (yalnız runner/agent loop; upload/OCR/DB/HTTP request bütünü değil)
@@ -167,3 +167,13 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 2. Geçici override `AGENT_MAX_STEPS=1` (yalnız app config/.env; shell prefix’e güvenme): yeni belge okuma → uydurma özet yerine anlaşılır STOP/açıklama. Flaky gerçek-model hızıyla PASS üretme.
 3. Sentetik büyük TXT: kısaltma görünür, kaynak adı korunur. Yenileme / yeni konuşma davranışı korunur.
 4. Override’ları geri al; normal `.env` commit edilmez.
+
+### A03 browser UAT sonucu (2026-11-07, agent)
+
+- Ortam: `http://127.0.0.1:3000`, branch `codex/agent-a03-run-budgets` @ `2ca79e4`, AUTH_DISABLED
+- Upload API: `source_filename` / `suggest_prompt` gerçek ad; mesajda `extracted_data/...` yok
+- `04_multilingual_unicode.docx` özet → başlık gerçek ad; `file_name_search`→`file_read`→ANSWER; “bu belgedeki denetim sıklığı?” → 45 gün, belge adı korunur — **PASS**
+- `03_lowres_scan_inside_word.docx` özet → gerçek ad; “bu belgedeki görseli göster” → `show_image` + `/agent/corpus/extracted_data/03_lowres_scan_inside_word/images/img_001.png`; yenilemede oturum korunur — **PASS**
+- Geçici `AGENT_MAX_STEPS=1`: `UAT Büyük Kaynak.txt` → STOP_INCOMPLETE, “Mevcut gözlemlerle terminal karar beklenirken yeniden araç çağrısı yapıldı.”; uydurma özet yok; sonra `.env` `8`’e alındı — **PASS**
+- Büyük TXT normal profil (`MAX_STEPS=8`): decide aşamasında `FlowLlmClientError` (yerel model/transport); kısaltma görünürlüğü bu turda browser’da kanıtlanamadı (unit testte var) — **NOT / KISMİ**
+- Merge/A04: yok
