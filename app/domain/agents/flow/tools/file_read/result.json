@@ -4,7 +4,18 @@
   "title": "file_read result",
   "type": "object",
   "additionalProperties": false,
-  "required": ["status", "path", "content", "truncated", "byte_size", "error"],
+  "required": [
+    "status",
+    "path",
+    "content",
+    "truncated",
+    "byte_size",
+    "error",
+    "source_filename",
+    "display_name",
+    "source_known",
+    "source_ambiguous"
+  ],
   "properties": {
     "status": {
       "type": "string",
@@ -14,6 +25,14 @@
     "content": { "type": ["string", "null"] },
     "truncated": { "type": "boolean" },
     "byte_size": { "type": ["integer", "null"], "minimum": 0 },
-    "error": { "type": ["string", "null"] }
+    "error": { "type": ["string", "null"] },
+    "source_filename": { "type": ["string", "null"] },
+    "display_name": { "type": ["string", "null"] },
+    "source_known": { "type": "boolean" },
+    "source_ambiguous": { "type": "boolean" },
+    "alternate_source_filenames": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
   }
 }

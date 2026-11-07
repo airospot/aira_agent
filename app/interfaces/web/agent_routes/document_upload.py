@@ -291,6 +291,8 @@ def document_upload():
                     "download_url": _download_url(upload_id),
                     "path": cached["path"],
                     "source_filename": source_filename,
+                    "display_name": source_filename,
+                    "suggest_prompt": f"{source_filename} dosyasını oku ve özetle",
                     "original_sha256": source_sha,
                     "status": "ready",
                     "parsed": True,
@@ -298,9 +300,7 @@ def document_upload():
                     "image_count": cached["image_count"],
                     "images": cached.get("images") or [],
                     "byte_size": cached["byte_size"],
-                    "message": (
-                        f"{source_filename} orijinal saklandı; türev cache: {cached['path']}"
-                    ),
+                    "message": f"{source_filename} yüklendi (önceki çıkarımdan).",
                 }
             )
 
@@ -396,6 +396,8 @@ def document_upload():
                     "download_url": _download_url(upload_id),
                     "path": rel,
                     "source_filename": source_filename,
+                    "display_name": source_filename,
+                    "suggest_prompt": f"{source_filename} dosyasını oku ve özetle",
                     "original_sha256": source_sha,
                     "status": "ready",
                     "parsed": True,
@@ -403,9 +405,7 @@ def document_upload():
                     "image_count": len(result.images),
                     "images": saved_images,
                     "byte_size": len(payload),
-                    "message": (
-                        f"{source_filename} parse edilip {rel} olarak tenant corpus'a yayımlandı"
-                    ),
+                    "message": f"{source_filename} yüklendi.",
                 }
             )
         except Exception as exc:  # noqa: BLE001
@@ -454,11 +454,13 @@ def document_upload():
             "download_url": _download_url(upload_id),
             "path": rel,
             "source_filename": source_filename,
+            "display_name": source_filename,
+            "suggest_prompt": f"{source_filename} dosyasını oku ve özetle",
             "original_sha256": source_sha,
             "status": "ready",
             "parsed": False,
             "cached": False,
             "byte_size": len(data),
-            "message": f"{rel} tenant corpus'a yüklendi",
+            "message": f"{source_filename} yüklendi.",
         }
     )

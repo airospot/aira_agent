@@ -19,11 +19,19 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path", "name", "byte_size"],
+        "required": ["path", "name", "byte_size", "source_filename", "display_name", "source_known"],
         "properties": {
           "path": { "type": "string" },
           "name": { "type": "string" },
-          "byte_size": { "type": "integer", "minimum": 0 }
+          "byte_size": { "type": "integer", "minimum": 0 },
+          "source_filename": { "type": ["string", "null"] },
+          "display_name": { "type": "string" },
+          "source_known": { "type": "boolean" },
+          "source_ambiguous": { "type": "boolean" },
+          "alternate_source_filenames": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
         }
       }
     },

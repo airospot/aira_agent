@@ -14,6 +14,7 @@ from app.shared.corpus_path_sandbox import (
     resolve_corpus_root,
     resolve_under_corpus,
 )
+from app.shared.document_source_identity import resolve_document_source
 
 _DIR = Path(__file__).resolve().parent
 _ARGUMENTS_SCHEMA = json.loads((_DIR / "tool.json").read_text(encoding="utf-8"))["arguments"]
@@ -52,13 +53,15 @@ def _read(path_arg: str, *, config: Mapping[str, Any] | None) -> dict[str, Any]:
         content = chunk.decode("utf-8")
     except UnicodeDecodeError:
         content = chunk.decode("utf-8", errors="replace")
-    rel = str(target.relative_to(root))
+    rel = target.relative_to(root).as_posix()
+    identity = resolve_document_source(root, rel)
     return _result(
         "ok",
         path=rel,
         content=content,
         truncated=truncated,
         byte_size=len(data),
+        identity=identity.as_tool_fields(),
     )
 
 
@@ -70,7 +73,16 @@ def _result(
     truncated: bool = False,
     byte_size: int | None = None,
     error: str | None = None,
+    identity: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    fields = {
+        "source_filename": None,
+        "display_name": None,
+        "source_known": False,
+        "source_ambiguous": False,
+    }
+    if identity:
+        fields.update(dict(identity))
     return {
         "status": status,
         "path": path,
@@ -78,4 +90,5 @@ def _result(
         "truncated": truncated,
         "byte_size": byte_size,
         "error": error,
+        **fields,
     }

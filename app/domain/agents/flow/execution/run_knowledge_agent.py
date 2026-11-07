@@ -311,7 +311,16 @@ def _summarize_observation(
         "status": str(status) if status is not None else None,
     }
     if tool == tool_names.get("file_read"):
-        for key in ("path", "truncated", "byte_size", "error"):
+        for key in (
+            "path",
+            "truncated",
+            "byte_size",
+            "error",
+            "source_filename",
+            "display_name",
+            "source_known",
+            "source_ambiguous",
+        ):
             if key in observation:
                 summary[key] = observation[key]
         content = observation.get("content")
@@ -319,7 +328,17 @@ def _summarize_observation(
             summary["content_chars"] = len(content)
         return summary
     if tool == tool_names.get("show_image"):
-        for key in ("path", "display_url", "mime", "byte_size", "error"):
+        for key in (
+            "path",
+            "display_url",
+            "mime",
+            "byte_size",
+            "error",
+            "source_filename",
+            "display_name",
+            "source_known",
+            "source_ambiguous",
+        ):
             if key in observation:
                 summary[key] = observation[key]
         return summary
@@ -341,6 +360,14 @@ def _summarize_observation(
                     entry["line"] = item.get("line")
                 if "name" in item:
                     entry["name"] = item.get("name")
+                for key in (
+                    "source_filename",
+                    "display_name",
+                    "source_known",
+                    "source_ambiguous",
+                ):
+                    if key in item:
+                        entry[key] = item.get(key)
                 candidates_out.append(entry)
         summary["candidates"] = candidates_out
         return summary

@@ -1,4 +1,4 @@
-"""file_name_search tool executor — match corpus paths by name only."""
+"""file_name_search tool executor — match by technical path or original name."""
 
 from __future__ import annotations
 
@@ -11,6 +11,10 @@ from jsonschema import Draft202012Validator
 from app.shared.corpus_path_sandbox import (
     is_resolved_under_corpus,
     resolve_corpus_root,
+)
+from app.shared.document_source_identity import (
+    iter_source_name_matches,
+    resolve_document_source,
 )
 
 _DIR = Path(__file__).resolve().parent
@@ -52,8 +56,6 @@ def _search_names(
     limit = max(1, min(limit, 50))
     pattern = str(arguments.get("glob") or "**/*").strip() or "**/*"
     root = resolve_corpus_root(config)
-    needle = query.lower()
-    hits: list[dict[str, Any]] = []
     try:
         paths = sorted(p for p in root.glob(pattern) if p.is_file())
     except ValueError:
@@ -67,21 +69,38 @@ def _search_names(
             "error": "invalid_glob",
         }
 
-    for path in paths:
-        if not is_resolved_under_corpus(root, path):
+    matches = iter_source_name_matches(root, query=query, paths=paths)
+    hits: list[dict[str, Any]] = []
+    for match in matches:
+        target = root / match.path
+        if not is_resolved_under_corpus(root, target) or not target.is_file():
             continue
         try:
-            rel = str(path.relative_to(root))
-        except ValueError:
-            continue
-        # Name/path match only — do not filter by text/binary (PNG etc. are valid).
-        if needle not in rel.lower() and needle not in path.name.lower():
-            continue
-        try:
-            size = path.stat().st_size
+            size = target.stat().st_size
         except OSError:
             size = 0
-        hits.append({"path": rel, "name": path.name, "byte_size": int(size)})
+        identity = resolve_document_source(root, match.path)
+        # Prefer the specific original name that matched the query when present.
+        source_filename = match.source_filename or identity.source_filename
+        display_name = (
+            match.source_filename
+            if match.source_filename
+            else identity.display_name
+        )
+        entry: dict[str, Any] = {
+            "path": match.path,
+            "name": Path(match.path).name,
+            "byte_size": int(size),
+            "source_filename": source_filename,
+            "display_name": display_name,
+            "source_known": bool(source_filename) or identity.source_known,
+            "source_ambiguous": identity.source_ambiguous,
+        }
+        if identity.alternate_source_filenames:
+            entry["alternate_source_filenames"] = list(
+                identity.alternate_source_filenames
+            )
+        hits.append(entry)
         if len(hits) >= limit:
             return {
                 "status": "ok",

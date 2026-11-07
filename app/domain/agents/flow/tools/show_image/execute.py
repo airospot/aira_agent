@@ -14,6 +14,7 @@ from app.shared.corpus_path_sandbox import (
     resolve_corpus_root,
     resolve_under_corpus,
 )
+from app.shared.document_source_identity import resolve_document_source
 
 _DIR = Path(__file__).resolve().parent
 _ARGUMENTS_SCHEMA = json.loads((_DIR / "tool.json").read_text(encoding="utf-8"))["arguments"]
@@ -74,12 +75,14 @@ def _show(path_arg: str, *, config: Mapping[str, Any] | None) -> dict[str, Any]:
             return _result("not_image", path=path_arg, error="not_image_mime")
     rel = target.relative_to(root).as_posix()
     display_url = _CORPUS_URL_PREFIX + quote(rel, safe="/")
+    identity = resolve_document_source(root, rel)
     return _result(
         "ok",
         path=rel,
         display_url=display_url,
         mime=mime,
         byte_size=byte_size,
+        identity=identity.as_tool_fields(),
     )
 
 
@@ -91,7 +94,16 @@ def _result(
     mime: str | None = None,
     byte_size: int | None = None,
     error: str | None = None,
+    identity: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    fields = {
+        "source_filename": None,
+        "display_name": None,
+        "source_known": False,
+        "source_ambiguous": False,
+    }
+    if identity:
+        fields.update(dict(identity))
     return {
         "status": status,
         "path": path,
@@ -99,4 +111,5 @@ def _result(
         "mime": mime,
         "byte_size": byte_size,
         "error": error,
+        **fields,
     }

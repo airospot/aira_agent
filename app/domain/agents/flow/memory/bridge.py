@@ -410,6 +410,12 @@ def _refs_from_decision_step(
         ref = dict(base)
         ref["observation_kind"] = "file_read"
         ref["path"] = path.strip()
+        source_filename = obs.get("source_filename")
+        if isinstance(source_filename, str) and source_filename.strip():
+            ref["source_filename"] = source_filename.strip()
+        display_name = obs.get("display_name")
+        if isinstance(display_name, str) and display_name.strip():
+            ref["display_name"] = display_name.strip()
         if (
             _historical_refs_json_bytes([ref])
             > _MAX_HISTORICAL_TOOL_REFERENCES_JSON_BYTES
@@ -426,6 +432,12 @@ def _refs_from_decision_step(
         display_url = obs.get("display_url")
         if isinstance(display_url, str) and display_url.strip():
             ref["display_url"] = display_url.strip()
+        source_filename = obs.get("source_filename")
+        if isinstance(source_filename, str) and source_filename.strip():
+            ref["source_filename"] = source_filename.strip()
+        display_name = obs.get("display_name")
+        if isinstance(display_name, str) and display_name.strip():
+            ref["display_name"] = display_name.strip()
         if (
             _historical_refs_json_bytes([ref])
             > _MAX_HISTORICAL_TOOL_REFERENCES_JSON_BYTES
@@ -459,6 +471,12 @@ def _file_candidate_refs(
         name = item.get("name")
         if isinstance(name, str) and name.strip():
             ref["name"] = name.strip()
+        source_filename = item.get("source_filename")
+        if isinstance(source_filename, str) and source_filename.strip():
+            ref["source_filename"] = source_filename.strip()
+        display_name = item.get("display_name")
+        if isinstance(display_name, str) and display_name.strip():
+            ref["display_name"] = display_name.strip()
         if (
             _historical_refs_json_bytes([ref])
             > _MAX_HISTORICAL_TOOL_REFERENCES_JSON_BYTES

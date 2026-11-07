@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "native.flow.tool.file_name_search.v1",
   "name": "file_name_search",
-  "description": "Find corpus files by name or relative path substring (and optional glob). Does not search file contents. Use when looking for a document by filename; then call file_read with the returned path. For text inside files use file_search.",
+  "description": "Find corpus files by original upload name and/or relative path substring (and optional glob). Does not search file contents. Prefer this when the user names a document (including Turkish/spaced .docx titles); then call file_read with the returned technical path. Candidates include source_filename/display_name when known. For text inside files use file_search.",
   "arguments": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "native.flow.tool.file_name_search.arguments.v1",
@@ -13,7 +13,7 @@
       "query": {
         "type": "string",
         "minLength": 1,
-        "description": "Case-insensitive substring matched against file names / relative paths (e.g. SCORING_GUIDE or .md)."
+        "description": "Case-insensitive substring matched against original upload names, basenames, and relative paths (e.g. Saha İnceleme Formu.docx or content.md)."
       },
       "glob": {
         "type": "string",
