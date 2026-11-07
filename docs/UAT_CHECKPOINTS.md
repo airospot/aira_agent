@@ -139,7 +139,7 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - Aşama: A03 (run budgets + bounded context)
 - Başlangıç commit: `2febf5d1cfa16445f1f1c0e6e53f1997531dfe26` (PR #4 head; merge yetkisi bu kayıtta yok)
 - Teslim commit SHA: `af3ffefa6765a197696b080a991fdbf73fe809ff`
-- İnceleme düzeltmesi HEAD: (push sonrası bu kayda yazılır)
+- İnceleme düzeltmesi HEAD: `496686a`
 - GitHub dalı ve PR: `codex/agent-a03-run-budgets` — https://github.com/airospot/aira_agent/pull/5 (draft)
 - PR tabanı: PR #4 (`2febf5d` / tenant storage); PR #4 merge yetkisi bu kayıtta yok
 
