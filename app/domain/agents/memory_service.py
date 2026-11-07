@@ -131,7 +131,7 @@ def _create_embedding(
     """
     del customer_id, user_id
     try:
-        from app.domain.agents.embeddings.ollama_embed import (
+        from app.adapters.db.embeddings.ollama_embed import (
             EmbeddingDimensionError,
             embed_document,
             embed_query,
@@ -225,7 +225,7 @@ def save_message(
         # Create and store embedding if requested (after commit to ensure memory.id exists)
         if create_embedding:
             try:
-                from app.domain.agents.embeddings.ollama_embed import (
+                from app.adapters.db.embeddings.ollama_embed import (
                     EMBEDDING_DIMENSIONS,
                     profile_metadata,
                 )
@@ -589,7 +589,7 @@ def get_long_term_memory_semantic(
     embedding miss.
     """
     try:
-        from app.domain.agents.embeddings.ollama_embed import (
+        from app.adapters.db.embeddings.ollama_embed import (
             EMBEDDING_DIMENSIONS,
             embedding_config_from_env,
         )

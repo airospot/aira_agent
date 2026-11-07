@@ -7,8 +7,8 @@ import mimetypes
 from flask import current_app, send_file
 
 from app.core.security import require_tenant, role_required
-from app.domain.agents.flow.tools._corpus import resolve_corpus_root, resolve_under_corpus
-from app.interfaces.web.agent_routes.routes import agent_bp
+from app.interfaces.web.agent_routes.blueprint import agent_bp
+from app.shared.corpus_path_sandbox import resolve_corpus_root, resolve_under_corpus
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
 _MAX_IMAGE_BYTES = 5_000_000

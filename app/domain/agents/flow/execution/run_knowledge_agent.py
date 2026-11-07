@@ -19,6 +19,9 @@ from app.domain.agents.flow.execution.events import (
 from app.domain.agents.flow.execution.llm.factory import (
     create_flow_llm_client,
 )
+from app.domain.agents.flow.execution.answer_show_image import (
+    enrich_answer_with_show_images,
+)
 from app.domain.agents.flow.execution.run_agent_loop import (
     run_agent_loop,
 )
@@ -213,6 +216,20 @@ def run_knowledge_agent(
     decision = result.get("decision")
     if isinstance(decision, dict) and decision.get("action") is not None:
         action = str(decision.get("action"))
+    # Persist-ready ANSWER: verified current-turn show_image URLs become Markdown images
+    # so refresh/history do not depend on the model emitting ![ ](...).
+    if (
+        str(status) == "ANSWER"
+        and isinstance(decision, dict)
+        and isinstance(decision.get("answer"), str)
+    ):
+        decision = dict(decision)
+        decision["answer"] = enrich_answer_with_show_images(
+            decision.get("answer"),
+            result.get("observations"),
+        )
+        result = dict(result)
+        result["decision"] = decision
     _emit(
         "flow_completed",
         action=action,

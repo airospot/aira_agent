@@ -24,7 +24,7 @@ if ROOT not in sys.path:
 
 load_dotenv(os.path.join(ROOT, ".env"), override=False)
 
-from app.domain.agents.embeddings.ollama_embed import (  # noqa: E402
+from app.adapters.db.embeddings.ollama_embed import (  # noqa: E402
     EMBEDDING_DIMENSIONS,
     embed_document,
     embedding_config_from_env,

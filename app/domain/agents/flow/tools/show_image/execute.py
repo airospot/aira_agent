@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 from jsonschema import Draft202012Validator
 
-from app.domain.agents.flow.tools._corpus import (
+from app.shared.corpus_path_sandbox import (
     resolve_corpus_root,
     resolve_under_corpus,
 )

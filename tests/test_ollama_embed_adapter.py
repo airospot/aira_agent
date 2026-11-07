@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.domain.agents.embeddings import ollama_embed as oe
+from app.adapters.db.embeddings import ollama_embed as oe
 
 
 def test_config_defaults(monkeypatch):
@@ -49,7 +49,7 @@ def test_query_role_applies_instruction_document_does_not(monkeypatch):
         resp.json.return_value = {"embeddings": [vec]}
         return resp
 
-    with patch("app.domain.agents.embeddings.ollama_embed.requests.post", fake_post):
+    with patch("app.adapters.db.embeddings.ollama_embed.requests.post", fake_post):
         oe.embed_query("fatura nedir")
         q_input = captured["json"]["input"]
         assert q_input.startswith(oe.QWEN_QUERY_INSTRUCTION)
@@ -72,7 +72,7 @@ def test_dimension_mismatch_raises(monkeypatch):
         resp.json.return_value = {"embeddings": [[0.0] * 2560]}
         return resp
 
-    with patch("app.domain.agents.embeddings.ollama_embed.requests.post", fake_post):
+    with patch("app.adapters.db.embeddings.ollama_embed.requests.post", fake_post):
         with pytest.raises(oe.EmbeddingDimensionError, match="2560"):
             oe.embed_document("x")
 

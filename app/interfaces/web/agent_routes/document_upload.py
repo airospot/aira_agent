@@ -11,10 +11,10 @@ from pathlib import Path
 from flask import current_app, jsonify, request
 
 from app.core.security import require_tenant, role_required
-from app.domain.agents.flow.tools._corpus import TEXT_SUFFIXES, resolve_corpus_root
+from app.shared.corpus_path_sandbox import TEXT_SUFFIXES, resolve_corpus_root
 from app.domain.services.document_parsers import OFFICE_SUFFIXES, get_parser
 from app.domain.services.document_parsers.vision_ocr import fill_image_placeholders
-from app.interfaces.web.agent_routes.routes import agent_bp
+from app.interfaces.web.agent_routes.blueprint import agent_bp
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 _MAX_TEXT_UPLOAD_BYTES = 2_000_000

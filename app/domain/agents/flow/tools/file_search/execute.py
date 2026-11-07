@@ -8,7 +8,7 @@ from typing import Any, Mapping
 
 from jsonschema import Draft202012Validator
 
-from app.domain.agents.flow.tools._corpus import (
+from app.shared.corpus_path_sandbox import (
     is_probably_text,
     is_resolved_under_corpus,
     resolve_corpus_root,

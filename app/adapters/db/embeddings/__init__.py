@@ -1,6 +1,6 @@
 """Embedding adapters for conversation memory."""
 
-from app.domain.agents.embeddings.ollama_embed import (
+from app.adapters.db.embeddings.ollama_embed import (
     EMBEDDING_DIMENSIONS,
     EMBEDDING_MODEL,
     EMBEDDING_PROFILE,

@@ -100,19 +100,19 @@ def _seed_completed_submission(application, client, *, sub_id: str, answer: str)
 
     with (
         patch(
-            "app.interfaces.web.agent_routes.routes.run_knowledge_agent",
+            "app.interfaces.web.agent_routes.propose.run_knowledge_agent",
             side_effect=fake_run,
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.persist_turn",
+            "app.interfaces.web.agent_routes.propose.persist_turn",
             side_effect=RuntimeError("persist skipped"),
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.load_flow_conversation",
+            "app.interfaces.web.agent_routes.propose.load_flow_conversation",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.list_agent_conversations",
+            "app.interfaces.web.agent_routes.propose.list_agent_conversations",
             return_value=[],
         ),
     ):
@@ -141,19 +141,19 @@ def test_get_recovery_survives_transcript_memory_read_error(app_client) -> None:
 
     with (
         patch(
-            "app.interfaces.web.agent_routes.routes.load_ui_transcript",
+            "app.interfaces.web.agent_routes.assistant.load_ui_transcript",
             side_effect=MemoryReadError("transcript down"),
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.list_agent_conversations",
+            "app.interfaces.web.agent_routes.assistant.list_agent_conversations",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.load_turn_trace",
+            "app.interfaces.web.agent_routes.assistant.load_turn_trace",
             return_value=None,
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.run_knowledge_agent",
+            "app.interfaces.web.agent_routes.propose.run_knowledge_agent",
             side_effect=AssertionError("LLM must not run on GET"),
         ),
     ):
@@ -191,19 +191,19 @@ def test_get_recovery_survives_conversation_list_memory_read_error(app_client) -
 
     with (
         patch(
-            "app.interfaces.web.agent_routes.routes.load_ui_transcript",
+            "app.interfaces.web.agent_routes.assistant.load_ui_transcript",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.list_agent_conversations",
+            "app.interfaces.web.agent_routes.assistant.list_agent_conversations",
             side_effect=MemoryReadError("sidebar down"),
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.load_turn_trace",
+            "app.interfaces.web.agent_routes.assistant.load_turn_trace",
             return_value=None,
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.run_knowledge_agent",
+            "app.interfaces.web.agent_routes.propose.run_knowledge_agent",
             side_effect=AssertionError("LLM must not run on GET"),
         ),
     ):

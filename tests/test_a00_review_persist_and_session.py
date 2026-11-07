@@ -112,27 +112,31 @@ def test_persist_failure_post_redirect_get_refresh_replay_shows_answer(app_clien
 
     with (
         patch(
-            "app.interfaces.web.agent_routes.routes.run_knowledge_agent",
+            "app.interfaces.web.agent_routes.propose.run_knowledge_agent",
             side_effect=fake_run,
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.persist_turn",
+            "app.interfaces.web.agent_routes.propose.persist_turn",
             side_effect=RuntimeError("db down"),
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.load_flow_conversation",
+            "app.interfaces.web.agent_routes.propose.load_flow_conversation",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.list_agent_conversations",
+            "app.interfaces.web.agent_routes.propose.list_agent_conversations",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.load_ui_transcript",
+            "app.interfaces.web.agent_routes.assistant.list_agent_conversations",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.load_turn_trace",
+            "app.interfaces.web.agent_routes.assistant.load_ui_transcript",
+            return_value=[],
+        ),
+        patch(
+            "app.interfaces.web.agent_routes.assistant.load_turn_trace",
             return_value=None,
         ),
     ):
@@ -202,11 +206,11 @@ def test_new_conversation_same_submission_replays_with_real_resolver(app_client)
 
     with (
         patch(
-            "app.interfaces.web.agent_routes.routes.run_knowledge_agent",
+            "app.interfaces.web.agent_routes.propose.run_knowledge_agent",
             side_effect=fake_run,
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.persist_turn",
+            "app.interfaces.web.agent_routes.propose.persist_turn",
             return_value={
                 "complete": True,
                 "assistant_memory_id": "am-nc",
@@ -214,19 +218,23 @@ def test_new_conversation_same_submission_replays_with_real_resolver(app_client)
             },
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.load_flow_conversation",
+            "app.interfaces.web.agent_routes.propose.load_flow_conversation",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.list_agent_conversations",
+            "app.interfaces.web.agent_routes.propose.list_agent_conversations",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.load_ui_transcript",
+            "app.interfaces.web.agent_routes.assistant.list_agent_conversations",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.load_turn_trace",
+            "app.interfaces.web.agent_routes.assistant.load_ui_transcript",
+            return_value=[],
+        ),
+        patch(
+            "app.interfaces.web.agent_routes.assistant.load_turn_trace",
             return_value=None,
         ),
     ):
@@ -286,11 +294,11 @@ def test_empty_session_same_submission_replays_with_real_resolver(app_client) ->
 
     with (
         patch(
-            "app.interfaces.web.agent_routes.routes.run_knowledge_agent",
+            "app.interfaces.web.agent_routes.propose.run_knowledge_agent",
             side_effect=fake_run,
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.persist_turn",
+            "app.interfaces.web.agent_routes.propose.persist_turn",
             return_value={
                 "complete": True,
                 "assistant_memory_id": "am-es",
@@ -298,19 +306,23 @@ def test_empty_session_same_submission_replays_with_real_resolver(app_client) ->
             },
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.load_flow_conversation",
+            "app.interfaces.web.agent_routes.propose.load_flow_conversation",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.list_agent_conversations",
+            "app.interfaces.web.agent_routes.propose.list_agent_conversations",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.load_ui_transcript",
+            "app.interfaces.web.agent_routes.assistant.list_agent_conversations",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.routes.load_turn_trace",
+            "app.interfaces.web.agent_routes.assistant.load_ui_transcript",
+            return_value=[],
+        ),
+        patch(
+            "app.interfaces.web.agent_routes.assistant.load_turn_trace",
             return_value=None,
         ),
     ):
