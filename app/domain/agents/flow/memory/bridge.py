@@ -697,6 +697,7 @@ def persist_turn(
         "ANSWER",
         "CLARIFY",
         "STOP_INCOMPLETE",
+        "ERROR",
         "step_limit",
     }
     if persist_assistant and assistant_content:

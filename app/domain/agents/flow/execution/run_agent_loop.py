@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from typing import Any, Callable, Mapping
 
+from jsonschema.exceptions import ValidationError
+
 from app.domain.agents.flow.execution.llm.client import FlowLlmClientError
 from app.domain.agents.flow.execution.run_policy import (
     RunBudget,
@@ -359,6 +361,12 @@ def run_agent_loop(
                 terminal_only=terminal_only,
             )
         except Exception as exc:  # noqa: BLE001
+            if isinstance(exc, ValidationError):
+                return _stop_incomplete(
+                    "Modelin karar biçimi doğrulanamadı; inceleme tamamlanamadı. Yeni bir gönderimle tekrar deneyebilirsiniz.",
+                    observations,
+                    code="invalid_model_decision",
+                )
             if terminal_only:
                 # Model emitted a non-terminal action under terminal-only schema.
                 return _stop_incomplete(

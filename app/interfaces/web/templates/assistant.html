@@ -78,6 +78,11 @@
             {% endif %}
           </div>
           {% endfor %}
+          {% if agent_notice and not (conversation_turns | selectattr('role', 'equalto', 'assistant') | selectattr('content', 'equalto', agent_notice) | list) %}
+          <div class="agent-chat-row agent-chat-row-assistant">
+            <p class="agent-chat-notice muted" role="status">{{ agent_notice }}</p>
+          </div>
+          {% endif %}
         {% elif request_text or agent_reply or agent_notice %}
           {% if request_text %}
           <div class="agent-chat-row agent-chat-row-user">
