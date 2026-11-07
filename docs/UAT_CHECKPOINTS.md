@@ -114,15 +114,15 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - İnceleme düzeltmesi SHA: `6919265c0de7ed45f99dd628d478da3e013873cf`
 - GitHub dalı ve PR: `codex/agent-a02-run-service` — https://github.com/airospot/aira_agent/pull/3 (draft)
 - Çalıştırma tarihi ve test profili: 2026-11-07; yerel Linux; `NATIVE_FLOW_A00_TEST` + fake servis testleri
-- Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **77 passed**
-  - Fake/unit: `tests/test_a02_agent_run_service.py`, `tests/test_a02_propose_route_context.py` (snapshot corpus, normalize submission_id, form spoof, kind→400)
+- Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **78 passed**
+  - Fake/unit: `tests/test_a02_agent_run_service.py`, `tests/test_a02_propose_route_context.py` (snapshot corpus, normalize submission_id VARCHAR(64), form spoof, kind→400)
   - Gerçek PG: `tests/test_pg_migration_and_race.py` aynı suite içinde
 - Gerçek MCP entegrasyon testi: uygulanmaz
 - Gerçek model testi: uygulanmaz (unit/fake runner; harici LLM yok)
 - İnceleme: **BEKLEMEDE**
 - Manuel UAT sahibi: proje sahibi
 - Manuel UAT: **BEKLEMEDE**
-- Beklenen davranış: propose sırası `AgentRunService`; route HTTP/cookie/303 (`outcome.kind`); `runner_config` bağımsız snapshot + `AGENT_CORPUS_DIR=corpus_root`; submission_id tek noktada normalize; boş/geçersiz ID rezervasyonsuz red
+- Beklenen davranış: propose sırası `AgentRunService`; route HTTP/cookie/303 (`outcome.kind`); `runner_config` bağımsız snapshot + `AGENT_CORPUS_DIR=corpus_root`; submission_id tek noktada normalize (max 64, DB ile uyumlu); boş/geçersiz/65+/128 ID rezervasyonsuz red
 - Kısa UAT: yeni konuşma + belge; takip; refresh/geçmiş; new=1 izolasyonu; bilinen görsel
 - Bilinen sınırlar: MCP/skill/Run API/A03 bütçe yok; legacy memory_service yeniden yazılmadı
 - Geri alma: `main` @ `29137b4`; şema değişikliği yok

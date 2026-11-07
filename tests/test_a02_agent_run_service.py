@@ -411,3 +411,67 @@ def test_padded_submission_id_completes_and_replays_normalized():
     assert second.kind == "replayed"
     assert second.submission_id == "pad-sub-1"
     assert ran["n"] == 1
+
+
+def test_submission_id_length_64_ok_65_and_128_reject_before_adapters():
+    ok64 = "a" + ("b" * 63)
+    assert len(ok64) == 64
+    bad65 = "a" + ("b" * 64)
+    assert len(bad65) == 65
+    bad128 = "a" + ("b" * 127)
+    assert len(bad128) == 128
+
+    memory = FakeMemory()
+    subs = FakeSubmissions()
+    calls: list[str] = []
+
+    def track_get(*, customer_id, user_id, submission_id):
+        calls.append("get_submission")
+        return FakeSubmissions.get_submission(
+            subs, customer_id=customer_id, user_id=user_id, submission_id=submission_id
+        )
+
+    def track_begin(**kwargs):
+        calls.append("try_begin")
+        return FakeSubmissions.try_begin_processing(subs, **kwargs)
+
+    def track_resolve(**kwargs):
+        calls.append("resolve_session")
+        return FakeMemory.resolve_session_id(memory, **kwargs)
+
+    def runner(*_a, **_k):
+        calls.append("runner")
+        raise AssertionError("runner must not run for rejected ids")
+
+    subs.get_submission = track_get  # type: ignore[method-assign]
+    subs.try_begin_processing = track_begin  # type: ignore[method-assign]
+    memory.resolve_session_id = track_resolve  # type: ignore[method-assign]
+
+    svc = AgentRunService(memory=memory, submissions=subs, runner=runner)
+
+    for bad in (bad65, bad128):
+        calls.clear()
+        out = svc.run(_ctx(), RunRequest(request_text="q", submission_id=bad))
+        assert out.kind == "invalid_submission_id"
+        assert calls == []
+        assert subs.rows == {}
+        assert memory.persist_calls == []
+
+    # 64 chars accepted — adapters may run; runner completes
+    calls.clear()
+
+    def ok_runner(text, **kwargs):
+        calls.append("runner")
+        return {
+            "status": "ANSWER",
+            "decision": {"action": "ANSWER", "answer": "ok64"},
+        }
+
+    svc_ok = AgentRunService(memory=memory, submissions=subs, runner=ok_runner)
+    out_ok = svc_ok.run(_ctx(), RunRequest(request_text="q", submission_id=ok64))
+    assert out_ok.kind == "completed"
+    assert out_ok.submission_id == ok64
+    assert "get_submission" in calls
+    assert "try_begin" in calls
+    assert "runner" in calls
+    assert f"1:2:{ok64}" in subs.rows

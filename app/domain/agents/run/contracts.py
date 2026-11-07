@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
-_SUBMISSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+# Matches DB VARCHAR(64): first char + up to 63 more → max 64 total.
+_SUBMISSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
 
 
 def _positive_int(value: Any, *, field_name: str) -> int:
