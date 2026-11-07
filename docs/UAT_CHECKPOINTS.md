@@ -112,18 +112,24 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - Başlangıç commit: `29137b4c62a6cf9af68d808506f9206c05810437`
 - Teslim commit SHA: `72c465c03b5b65cb81bbeaa7daf907e0c88f099c`
 - İnceleme düzeltmesi SHA: `53c212cf3cd5ecbd723b7f4b30654839e6a5f502`
-- GitHub dalı ve PR: `codex/agent-a02-run-service` — https://github.com/airospot/aira_agent/pull/3 (draft)
+- GitHub dalı ve PR: `codex/agent-a02-run-service` — https://github.com/airospot/aira_agent/pull/3
+- Merge SHA (main): `10bfa146a90e8ed28bd2fc6a1040305ed9d3f385`
 - Çalıştırma tarihi ve test profili: 2026-11-07; yerel Linux; `NATIVE_FLOW_A00_TEST` + fake servis testleri
-- Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **78 passed**
-  - Fake/unit: `tests/test_a02_agent_run_service.py`, `tests/test_a02_propose_route_context.py` (snapshot corpus, normalize submission_id VARCHAR(64), form spoof, kind→400)
-  - Gerçek PG: `tests/test_pg_migration_and_race.py` aynı suite içinde
-- Gerçek MCP entegrasyon testi: uygulanmaz
-- Gerçek model testi: uygulanmaz (unit/fake runner; harici LLM yok)
+- Otomatik test (merge öncesi): `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **80 passed**
+- Manuel UAT: **KABUL** (PNG isim arama + show_image)
+- İnceleme: tamamlandı (merge)
+
+## Tenant document storage teknik kayıt
+
+- Aşama: tenant-document-storage (A03 değil)
+- Başlangıç commit: `10bfa146a90e8ed28bd2fc6a1040305ed9d3f385` (A02 merge)
+- Teslim commit SHA: `98c10eb2e5959945eeb42de41886c0cbcb96328b`
+- GitHub dalı ve PR: `codex/tenant-document-storage` — _(draft PR URL)_
+- Çalıştırma: 2026-11-07; `NATIVE_FLOW_A00_TEST`
+- Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **91 passed**
+- Dizin: `data/tenants/<customer_id>/{uploads,corpus}`; orijinal indirme `/agent/documents/<upload_id>/original`
+- Gerçek eski veri migration: **uygulanmadı** (script dry-run varsayılan; `--apply` bu teslimde çalıştırılmadı)
 - İnceleme: **BEKLEMEDE**
-- Manuel UAT sahibi: proje sahibi
 - Manuel UAT: **BEKLEMEDE**
-- Beklenen davranış: propose sırası `AgentRunService`; route HTTP/cookie/303 (`outcome.kind`); `runner_config` bağımsız snapshot + `AGENT_CORPUS_DIR=corpus_root`; submission_id tek noktada normalize (max 64, DB ile uyumlu); boş/geçersiz/65+/128 ID rezervasyonsuz red
-- Kısa UAT: yeni konuşma + belge; takip; refresh/geçmiş; new=1 izolasyonu; bilinen görsel
-- Bilinen sınırlar: MCP/skill/Run API/A03 bütçe yok; legacy memory_service yeniden yazılmadı
-- Geri alma: `main` @ `29137b4`; şema değişikliği yok
-- Sonraki aşamaya geçiş talimatı: beklemede (merge/A03 yok)
+- Kısa UAT: DOCX+TXT yükle → orijinal indir → çıkarımı sor/görsel göster → ayrı tenant’ta arama/URL erişilemez → profili geri al
+- Merge / A03: yok
