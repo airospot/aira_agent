@@ -49,14 +49,34 @@ class ToolRegistry:
         )
         self._tools[name] = frozen
 
+    def _public_view(self, stored: ToolSpec) -> ToolSpec:
+        """Handler identity preserved; schemas/catalog/metadata are independent copies."""
+        return ToolSpec(
+            name=stored.name,
+            version=stored.version,
+            description=stored.description,
+            input_schema=deepcopy(dict(stored.input_schema)),
+            output_schema=deepcopy(dict(stored.output_schema)),
+            handler=stored.handler,
+            catalog_document=deepcopy(dict(stored.catalog_document)),
+            side_effect_class=stored.side_effect_class,
+            retry_policy=stored.retry_policy,
+            cache_policy=stored.cache_policy,
+            timeout_seconds=stored.timeout_seconds,
+            extra_metadata=deepcopy(dict(stored.extra_metadata or {})),
+        )
+
     def get(self, name: str) -> ToolSpec | None:
-        return self._tools.get(str(name or "").strip())
+        stored = self._tools.get(str(name or "").strip())
+        if stored is None:
+            return None
+        return self._public_view(stored)
 
     def require(self, name: str) -> ToolSpec:
-        spec = self.get(name)
-        if spec is None:
+        stored = self._tools.get(str(name or "").strip())
+        if stored is None:
             raise ToolNotRegisteredError(f"unknown tool: {name}")
-        return spec
+        return self._public_view(stored)
 
     def names(self) -> frozenset[str]:
         return frozenset(self._tools)

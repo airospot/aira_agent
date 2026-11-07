@@ -46,7 +46,6 @@ def run_knowledge_agent(
     on_event: Callable[[Mapping[str, Any]], Any] | None = None,
     caller_context: Mapping[str, Any] | None = None,
     tool_registry: ToolRegistry | None = None,
-    tool_executor: ToolExecutor | None = None,
     permitted_tool_names: set[str] | frozenset[str] | None = None,
 ) -> dict[str, Any]:
     """Run one agent turn with corpus file tools via shared registry/executor."""
@@ -58,7 +57,8 @@ def run_knowledge_agent(
         permitted = frozenset(NATIVE_TOOL_NAMES)
     else:
         permitted = frozenset(str(n).strip() for n in permitted_tool_names if str(n).strip())
-    executor = tool_executor or ToolExecutor(registry, permitted_names=permitted)
+    # Catalog and execution share the same registry + allowlist (no separate executor inject).
+    executor = ToolExecutor(registry, permitted_names=permitted)
 
     permitted_tools = registry.catalog(names=permitted)
     tool_names = {

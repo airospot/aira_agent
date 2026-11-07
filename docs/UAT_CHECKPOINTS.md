@@ -76,7 +76,7 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - Teslim commit SHA: PR / teslim raporunda (self-SHA amend yok)
 - GitHub dalı ve PR: `codex/agent-a01-tool-registry` (URL teslimde)
 - Çalıştırma tarihi ve test profili: 2026-11-07; yerel Linux; `NATIVE_FLOW_A00_TEST` + unit
-- Otomatik test komutları ve sonuçları: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **43 passed** (33 A00 + 10 A01)
+- Otomatik test komutları ve sonuçları: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **45 passed** (inceleme düzeltmesi: boş izin + schema kopyası)
 - Gerçek PostgreSQL testi: A00 regresyonu için `NATIVE_FLOW_A00_TEST` geçti (A01 DB şema değişikliği yok)
 - Gerçek MCP entegrasyon testi: uygulanmaz
 - Gerçek model testi: uygulanmaz (scriptlenmiş karar / mock LLM)

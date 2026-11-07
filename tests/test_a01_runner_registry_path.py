@@ -8,8 +8,6 @@ from unittest.mock import MagicMock, patch
 
 from app.domain.agents.flow.execution.run_knowledge_agent import run_knowledge_agent
 from app.domain.agents.flow.tooling import (
-    ToolExecutor,
-    ToolRegistry,
     ToolSpec,
     build_native_tool_registry,
 )
@@ -138,7 +136,6 @@ def test_fifth_test_tool_dispatch_without_production_registration(
     assert set(build_native_tool_registry().names()) == set(NATIVE_TOOL_NAMES)
 
     permitted = set(NATIVE_TOOL_NAMES) | {"test_double"}
-    executor = ToolExecutor(registry, permitted_names=permitted)
     decide_fn, _ = _scripted_decisions(
         [
             {
@@ -166,7 +163,6 @@ def test_fifth_test_tool_dispatch_without_production_registration(
             config={"AGENT_CORPUS_DIR": str(tmp_path)},
             on_event=events.append,
             tool_registry=registry,
-            tool_executor=executor,
             permitted_tool_names=permitted,
         )
     assert result["status"] == "ANSWER"
@@ -174,3 +170,75 @@ def test_fifth_test_tool_dispatch_without_production_registration(
     obs = result["observations"][0]
     assert obs["status"] == "ok"
     assert obs["doubled"] == 42
+
+
+def test_empty_permit_list_does_not_run_handler(tmp_path: Path) -> None:
+    handler = MagicMock(
+        return_value={"status": "ok", "path": "x", "content": "y",
+                       "truncated": False, "byte_size": 1, "error": None}
+    )
+    registry = build_native_tool_registry()
+    # Replace file_read handler via re-register is blocked; wrap by registering
+    # a test tool only, with empty allowlist on the runner.
+    args = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["text"],
+        "properties": {"text": {"type": "string", "minLength": 1}},
+    }
+    result_schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["status", "echo", "error"],
+        "properties": {
+            "status": {"type": "string"},
+            "echo": {"type": "string"},
+            "error": {"type": ["string", "null"]},
+        },
+    }
+    registry.register(
+        ToolSpec(
+            name="test_echo_deny",
+            version="v1",
+            description="denied",
+            input_schema=args,
+            output_schema=result_schema,
+            handler=handler,
+            catalog_document={
+                "name": "test_echo_deny",
+                "description": "denied",
+                "arguments": args,
+            },
+        )
+    )
+    decide_fn, _ = _scripted_decisions(
+        [
+            {
+                "action": "CALL_TOOL",
+                "tool": "test_echo_deny",
+                "arguments": {"text": "nope"},
+            },
+        ]
+    )
+    with (
+        patch(
+            "app.domain.agents.flow.execution.run_knowledge_agent.create_flow_llm_client",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "app.domain.agents.flow.execution.run_knowledge_agent.request_model_decision",
+            side_effect=lambda *a, **k: decide_fn(),
+        ),
+    ):
+        result = run_knowledge_agent(
+            "echo",
+            conversation=[],
+            config={"AGENT_CORPUS_DIR": str(tmp_path)},
+            tool_registry=registry,
+            permitted_tool_names=frozenset(),  # empty allowlist
+        )
+    assert result["status"] == "ERROR"
+    assert result.get("stage") == "execute_tool"
+    handler.assert_not_called()

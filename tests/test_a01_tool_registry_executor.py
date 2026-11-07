@@ -116,6 +116,34 @@ def test_catalog_mutation_does_not_affect_later_runs() -> None:
     assert reg.require("file_read").input_schema["properties"]["path"]["minLength"] == 1
 
 
+def test_get_require_schema_copies_do_not_affect_validation_or_catalog() -> None:
+    reg = build_native_tool_registry()
+    viewed = reg.require("file_read")
+    handler_ref = viewed.handler
+    viewed.input_schema["properties"]["path"]["minLength"] = 9999
+    viewed.output_schema["required"] = ["status"]
+    viewed.catalog_document["description"] = "mutated-public-view"
+    viewed.extra_metadata["x"] = "y"
+
+    again = reg.require("file_read")
+    assert again.handler is handler_ref
+    assert again.input_schema["properties"]["path"]["minLength"] == 1
+    assert "path" in again.output_schema.get("required", [])
+    assert again.catalog_document["description"] != "mutated-public-view"
+    assert "x" not in again.extra_metadata
+
+    catalog = reg.catalog(names=["file_read"])
+    assert catalog[0]["description"] != "mutated-public-view"
+    assert catalog[0]["arguments"]["properties"]["path"]["minLength"] == 1
+
+    # Executor validation still accepts a normal short path.
+    corpus_ok = {"AGENT_CORPUS_DIR": "."}
+    ex = ToolExecutor(reg, permitted_names={"file_read"})
+    # missing file is fine — must not fail on minLength 9999 from mutated view
+    result = ex.execute("file_read", {"path": "nope.md"}, config=corpus_ok)
+    assert result["status"] in {"not_found", "invalid_path", "ok", "not_text", "error"}
+
+
 def test_native_bootstrap_registers_exactly_four() -> None:
     reg = build_native_tool_registry()
     assert set(reg.names()) == set(NATIVE_TOOL_NAMES)
