@@ -199,7 +199,7 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - Başlangıç SHA: `63be6a7` (`codex/agent-a03-run-budgets` / PR #5 head)
 - PR tabanı (stacked): A03 henüz main’de değil; PR #4 (`codex/tenant-document-storage`, open) ve PR #5 (`codex/agent-a03-run-budgets`, open) **merge edilmedi** — bu görev onları merge etmez
 - Dal: `codex/agent-a04-document-review-skill` (A03 head’den)
-- Teslim commit SHA: (push sonrası)
+- Teslim commit SHA: `79e9e6b`
 - GitHub PR: (oluşturulunca)
 
 - Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **155 passed** (skip yok)
