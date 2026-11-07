@@ -9,7 +9,10 @@ from app.domain.agents.run.contracts import RunRequest
 from app.domain.agents.run.factory import (
     build_execution_context,
     create_agent_run_service,
+    skill_id_for_form,
 )
+from app.domain.agents.skills.catalog import STANDARD_SKILL_ID
+from app.domain.agents.skills.errors import SkillError
 from app.interfaces.web.agent_routes.assistant import redirect_assistant
 from app.interfaces.web.agent_routes.blueprint import agent_bp
 from app.interfaces.web.agent_routes.submission_store import (
@@ -24,6 +27,7 @@ _HTTP_ERROR_BY_KIND = frozenset(
         "session_mismatch",
         "scope_mismatch",
         "invalid_submission_id",
+        "skill_error",
     }
 )
 
@@ -56,6 +60,11 @@ def assistant_propose():
     _ = request.form.get("customer_id")
     _ = request.form.get("user_id")
     _ = request.form.get("permitted_tools")
+    # Version/content/tools must not come from the client.
+    _ = request.form.get("skill_version")
+    _ = request.form.get("skill_digest")
+    _ = request.form.get("skill_tools")
+    _ = request.form.get("allowed_tools")
 
     new_conversation = (request.form.get("new_conversation") or "").strip() in {
         "1",
@@ -65,17 +74,33 @@ def assistant_propose():
     explicit_session_id = str(request.form.get("session_id") or "").strip() or None
     agent_session_hint = str(session.get("agent_session_id") or "").strip() or None
 
-    ctx = build_execution_context(
-        customer_id=customer_id,
-        user_id=user_id,
-        config=current_app.config,
-    )
+    try:
+        skill_id = skill_id_for_form(request.form.get("skill_id"))
+        ctx = build_execution_context(
+            customer_id=customer_id,
+            user_id=user_id,
+            config=current_app.config,
+            skill_id=skill_id,
+        )
+    except SkillError as exc:
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": exc.code,
+                    "message": exc.message,
+                }
+            ),
+            400,
+        )
+
     req = RunRequest(
         request_text=request_text,
         submission_id=submission_id,
         explicit_session_id=explicit_session_id,
         new_conversation=new_conversation,
         agent_session_id_hint=agent_session_hint,
+        skill_id=skill_id,
     )
     service = create_agent_run_service()
     outcome = service.run(ctx, req)
@@ -102,8 +127,10 @@ def assistant_propose():
             payload=dict(outcome.payload),
         )
 
+    redirect_skill = skill_id if skill_id != STANDARD_SKILL_ID else None
     return redirect_assistant(
         session_id=outcome.session_id,
         turn_id=outcome.turn_id,
         submission_id=outcome.submission_id,
+        skill_id=redirect_skill,
     )

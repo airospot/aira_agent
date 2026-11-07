@@ -44,9 +44,9 @@ class CaptureClient:
 def test_system_prompt_states_document_reference_priority():
     text = AGENT_SYSTEM_PROMPT
     assert "Document follow-up references" in text
-    assert "explicit corpus-relative path" in text
+    assert "recent_document" in text
     assert "historical_tool_references" in text
-    assert "CLARIFY once" in text
+    assert "CLARIFY" in text
     assert "another session" in text.lower() or "other session" in text.lower()
 
 

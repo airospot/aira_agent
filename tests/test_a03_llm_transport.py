@@ -30,6 +30,7 @@ def test_ollama_root_strips_v1() -> None:
 
 
 _OLLAMA_ENV_KEYS = (
+    "OLLAMA_BASE_URL",
     "KNOWLEDGE_FLOW_LLM_BASE_URL",
     "KNOWLEDGE_FLOW_LLM_MODEL",
     "KNOWLEDGE_FLOW_LLM_API_KEY",
@@ -109,6 +110,22 @@ def test_factory_cloud_does_not_require_ollama_keys(clean_llm_env) -> None:
     assert not client.uses_ollama_native()
     assert client.context_tokens is None
     assert client.think is None
+
+
+def test_factory_derives_llm_url_from_ollama_base(clean_llm_env) -> None:
+    client = create_flow_llm_client(
+        {
+            "OLLAMA_BASE_URL": "http://127.0.0.1:11434",
+            "KNOWLEDGE_FLOW_LLM_MODEL": "qwen3.5:9b",
+            "KNOWLEDGE_FLOW_LLM_API_KEY": "ollama",
+            "KNOWLEDGE_FLOW_LLM_TIMEOUT_SECONDS": "30",
+            "KNOWLEDGE_FLOW_LLM_CONTEXT_TOKENS": "65536",
+            "KNOWLEDGE_FLOW_LLM_MAX_OUTPUT_TOKENS": "2048",
+            "KNOWLEDGE_FLOW_LLM_THINK": "false",
+        }
+    )
+    assert client.base_url == "http://127.0.0.1:11434/v1"
+    assert client.uses_ollama_native()
 
 
 def test_ollama_native_request_contract() -> None:

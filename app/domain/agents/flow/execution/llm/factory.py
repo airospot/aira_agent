@@ -31,11 +31,7 @@ _DEFAULT_TIMEOUT_SECONDS = 75
 def create_flow_llm_client(config: Mapping[str, Any] | None) -> FlowLlmClient:
     """KNOWLEDGE_FLOW_LLM_* config → FlowLlmClient."""
     cfg = dict(config or {})
-    base_url = _first_nonempty(
-        cfg.get("KNOWLEDGE_FLOW_LLM_BASE_URL"),
-        os.environ.get("KNOWLEDGE_FLOW_LLM_BASE_URL"),
-        _DEFAULT_BASE_URL,
-    )
+    base_url = _resolve_llm_base_url(cfg)
     model = _first_nonempty(
         cfg.get("KNOWLEDGE_FLOW_LLM_MODEL"),
         os.environ.get("KNOWLEDGE_FLOW_LLM_MODEL"),
@@ -92,6 +88,29 @@ def _first_nonempty(*values: Any) -> str:
         if text:
             return text
     return ""
+
+
+def _resolve_llm_base_url(cfg: Mapping[str, Any]) -> str:
+    """Explicit LLM URL, else OLLAMA_BASE_URL + /v1, else cloud default.
+
+    Switch local Ollama host via ``OLLAMA_BASE_URL`` in ``.env`` without
+    duplicating the port in every consumer.
+    """
+    explicit = _first_nonempty(
+        cfg.get("KNOWLEDGE_FLOW_LLM_BASE_URL"),
+        os.environ.get("KNOWLEDGE_FLOW_LLM_BASE_URL"),
+    )
+    if explicit:
+        return explicit
+    ollama_root = _first_nonempty(
+        cfg.get("OLLAMA_BASE_URL"),
+        os.environ.get("OLLAMA_BASE_URL"),
+    ).rstrip("/")
+    if ollama_root:
+        if ollama_root.endswith("/v1"):
+            return ollama_root
+        return f"{ollama_root}/v1"
+    return _DEFAULT_BASE_URL
 
 
 def _timeout_seconds(*values: Any) -> int:

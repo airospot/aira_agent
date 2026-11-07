@@ -78,6 +78,11 @@
             {% endif %}
           </div>
           {% endfor %}
+          {% if agent_notice and not (conversation_turns | selectattr('role', 'equalto', 'assistant') | selectattr('content', 'equalto', agent_notice) | list) %}
+          <div class="agent-chat-row agent-chat-row-assistant">
+            <p class="agent-chat-notice muted" role="status">{{ agent_notice }}</p>
+          </div>
+          {% endif %}
         {% elif request_text or agent_reply or agent_notice %}
           {% if request_text %}
           <div class="agent-chat-row agent-chat-row-user">
@@ -108,6 +113,13 @@
         <input type="hidden" name="session_id" value="{{ session_id }}">
         {% endif %}
         <input type="hidden" name="submission_id" value="{{ submission_id }}">
+        <label class="agent-skill-select" for="agent-skill-id">
+          <span class="sr-only">Çalışma modu</span>
+          <select name="skill_id" id="agent-skill-id" autocomplete="off">
+            <option value="standard"{% if (skill_id or 'standard') != 'document-review' %} selected{% endif %}>Standart</option>
+            <option value="document-review"{% if skill_id == 'document-review' %} selected{% endif %}>Belge inceleme</option>
+          </select>
+        </label>
         <label class="sr-only" for="ai-request-text">Ne sormak istiyorsunuz?</label>
         <textarea
           name="request_text"

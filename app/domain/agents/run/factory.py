@@ -4,15 +4,18 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from app.domain.agents.flow.execution.run_policy import parse_run_policy
 from app.domain.agents.flow.tooling.native_bootstrap import NATIVE_TOOL_NAMES
 from app.domain.agents.run.adapters import (
     BridgeMemoryAdapter,
     SqlAlchemySubmissionAdapter,
     default_runner,
 )
-from app.domain.agents.flow.execution.run_policy import parse_run_policy
 from app.domain.agents.run.contracts import ExecutionContext
 from app.domain.agents.run.service import AgentRunService
+from app.domain.agents.skills.catalog import STANDARD_SKILL_ID, normalize_skill_id
+from app.domain.agents.skills.errors import SkillError
+from app.domain.agents.skills.loader import bind_skill_tools, load_skill_snapshot
 from app.shared.tenant_storage import resolve_tenant_storage
 
 
@@ -44,6 +47,7 @@ def build_execution_context(
     customer_id: int,
     user_id: int,
     config: Mapping[str, Any],
+    skill_id: str | None = None,
 ) -> ExecutionContext:
     timeout = int(
         config.get("AGENT_SUBMISSION_TIMEOUT_SECONDS")
@@ -54,12 +58,31 @@ def build_execution_context(
     root = storage.corpus_root
     # Single validation point for run budgets (form/model cannot override).
     policy = parse_run_policy(config)
+
+    server_tools = frozenset(NATIVE_TOOL_NAMES)
+    normalized = normalize_skill_id(skill_id)
+    snapshot = load_skill_snapshot(normalized, config=config)
+    try:
+        effective = bind_skill_tools(
+            snapshot,
+            server_permitted=server_tools,
+            registry_names=server_tools,
+        )
+    except SkillError:
+        raise
+
     return ExecutionContext(
         customer_id=customer_id,
         user_id=user_id,
         corpus_root=str(root),
-        permitted_tool_names=frozenset(NATIVE_TOOL_NAMES),
+        permitted_tool_names=effective,
         submission_timeout_seconds=timeout,
         runner_config=config,
         run_policy=policy,
+        skill_snapshot=snapshot,
     )
+
+
+def skill_id_for_form(raw: object) -> str:
+    """Normalize form/GET skill id; raises SkillError on unknown."""
+    return normalize_skill_id(raw) if raw is not None and str(raw).strip() else STANDARD_SKILL_ID

@@ -101,11 +101,17 @@ class SqlAlchemySubmissionAdapter:
         request_text: str,
         new_conversation: bool,
         explicit_session_id: str | None,
+        skill_id: str | None = None,
+        skill_version: str | None = None,
+        skill_digest: str | None = None,
     ) -> str:
         return submissions.hash_for_reservation(
             request_text=request_text,
             new_conversation=new_conversation,
             explicit_session_id=explicit_session_id,
+            skill_id=skill_id,
+            skill_version=skill_version,
+            skill_digest=skill_digest,
         )
 
     def try_begin_processing(
@@ -135,12 +141,18 @@ class SqlAlchemySubmissionAdapter:
         request_text: str,
         new_conversation: bool,
         canonical_session_id: str | None,
+        skill_id: str | None = None,
+        skill_version: str | None = None,
+        skill_digest: str | None = None,
     ) -> bool:
         return submissions.hash_matches_stored(
             stored_hash=stored_hash,
             request_text=request_text,
             new_conversation=new_conversation,
             canonical_session_id=canonical_session_id,
+            skill_id=skill_id,
+            skill_version=skill_version,
+            skill_digest=skill_digest,
         )
 
     def is_processing_timed_out(
@@ -184,6 +196,7 @@ def default_runner(
     on_event: Any = None,
     permitted_tool_names: frozenset[str] | None = None,
     run_policy: Any = None,
+    skill_snapshot: Any = None,
 ) -> dict[str, Any]:
     return run_knowledge_agent(
         request_text,
@@ -192,4 +205,5 @@ def default_runner(
         on_event=on_event,
         permitted_tool_names=permitted_tool_names,
         run_policy=run_policy,
+        skill_snapshot=skill_snapshot,
     )

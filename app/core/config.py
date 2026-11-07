@@ -14,9 +14,10 @@ def build_app_config() -> dict[str, Any]:
         "AGENT_CORPUS_DIR": os.environ.get("AGENT_CORPUS_DIR", "data/corpus"),
         # Tenant originals + corpus live under this root (not shared data/corpus).
         "TENANT_DATA_ROOT": os.environ.get("TENANT_DATA_ROOT", "data/tenants"),
-        "KNOWLEDGE_FLOW_LLM_BASE_URL": os.environ.get(
-            "KNOWLEDGE_FLOW_LLM_BASE_URL", "http://127.0.0.1:11434/v1"
-        ),
+        # Local Ollama root (LLM/embed). LLM_BASE empty → OLLAMA_BASE_URL/v1.
+        "OLLAMA_BASE_URL": os.environ.get("OLLAMA_BASE_URL"),
+        "KNOWLEDGE_FLOW_LLM_BASE_URL": os.environ.get("KNOWLEDGE_FLOW_LLM_BASE_URL"),
+        "KNOWLEDGE_FLOW_EMBED_BASE_URL": os.environ.get("KNOWLEDGE_FLOW_EMBED_BASE_URL"),
         "KNOWLEDGE_FLOW_LLM_MODEL": os.environ.get(
             "KNOWLEDGE_FLOW_LLM_MODEL", "qwen3.5:9b"
         ),
@@ -46,4 +47,6 @@ def build_app_config() -> dict[str, Any]:
         "AGENT_MAX_OBSERVATION_BYTES": os.environ.get("AGENT_MAX_OBSERVATION_BYTES"),
         "AGENT_MAX_CONTEXT_BYTES": os.environ.get("AGENT_MAX_CONTEXT_BYTES"),
         "AGENT_MAX_TOOL_RETRIES": os.environ.get("AGENT_MAX_TOOL_RETRIES"),
+        # A04 skill file read cap — no code-side numeric default.
+        "AGENT_SKILL_MAX_BYTES": os.environ.get("AGENT_SKILL_MAX_BYTES"),
     }

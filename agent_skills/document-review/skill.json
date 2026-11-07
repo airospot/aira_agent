@@ -1,0 +1,24 @@
+{
+  "id": "document-review",
+  "version": "1.0.0",
+  "description": "Belgeyi native araçlarla bulup okur; kaynaklı inceleme raporu üretir.",
+  "allowed_tools": [
+    "file_name_search",
+    "file_search",
+    "file_read",
+    "show_image"
+  ],
+  "required_tools": [
+    "file_name_search",
+    "file_read"
+  ],
+  "resources": [
+    {
+      "name": "checklist",
+      "path": "resources/checklist.md"
+    }
+  ],
+  "completion_requirements": {
+    "content_answer_requires_file_read": true
+  }
+}

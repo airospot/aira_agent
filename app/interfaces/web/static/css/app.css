@@ -3035,6 +3035,18 @@ body.agent-assistant-page .ak-main {
   margin-left: auto;
   margin-right: auto;
 }
+.agent-skill-select {
+  flex: 0 0 auto;
+  margin: 0;
+  display: flex;
+  align-items: center;
+}
+.agent-skill-select select {
+  min-height: 44px;
+  max-width: 11.5rem;
+  margin: 0;
+  font-size: 0.9rem;
+}
 .agent-chat-input {
   flex: 1;
   min-height: 56px;

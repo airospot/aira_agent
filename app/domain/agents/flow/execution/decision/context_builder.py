@@ -28,6 +28,13 @@ _TERMINAL_ONLY_SYSTEM_SUFFIX = """
 This turn is terminal-only. The decision_schema permits only ANSWER, CLARIFY, or STOP_INCOMPLETE. CALL_TOOL is not permitted. Use only the observations already provided; do not invent missing technical fields. Partial catalog evidence (presence, group, selectability, source identity, missing description) is enough for a limited ANSWER when present.
 """
 
+_TERMINAL_ONLY_DOCUMENT_REVIEW_SUFFIX = """
+
+This turn is terminal-only. The decision_schema permits only ANSWER, CLARIFY, or STOP_INCOMPLETE. CALL_TOOL is not permitted. Use only the observations already provided; do not invent missing technical fields.
+
+Document-review exception: search/catalog hits (file presence, name, size, directory, meta.json) are NOT enough for a content-review ANSWER. A successful file_read observation with document body text is required before writing content findings. If the file was not found, say so honestly — do not invent content and do not ask the user for extracted_data/ or content.md technical paths. Use original source_filename in user-facing titles.
+"""
+
 
 class ContextBuildError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
@@ -36,10 +43,20 @@ class ContextBuildError(RuntimeError):
         self.message = message
 
 
-def _system_prompt(*, terminal_only: bool) -> str:
+def _system_prompt(*, terminal_only: bool, skill_snapshot: Any = None) -> str:
+    prompt = AGENT_SYSTEM_PROMPT
     if terminal_only:
-        return AGENT_SYSTEM_PROMPT + _TERMINAL_ONLY_SYSTEM_SUFFIX
-    return AGENT_SYSTEM_PROMPT
+        review = bool(
+            skill_snapshot is not None
+            and getattr(skill_snapshot, "requires_file_read_for_content_answer", None)
+            and skill_snapshot.requires_file_read_for_content_answer()
+        )
+        prompt = prompt + (
+            _TERMINAL_ONLY_DOCUMENT_REVIEW_SUFFIX
+            if review
+            else _TERMINAL_ONLY_SYSTEM_SUFFIX
+        )
+    return prompt
 
 
 def _conversation_for_model(conversation: Any) -> Any:
@@ -64,6 +81,11 @@ def _conversation_for_model(conversation: Any) -> Any:
 
 
 def _drop_optional_background(conversation: Any) -> Any:
+    """Drop LTM/structured/historical lists under pressure.
+
+    Keep ``recent_document`` — it is a tiny same-session reference hint and must
+    survive optional-background trimming so follow-ups stay resolvable.
+    """
     if not isinstance(conversation, Mapping):
         return conversation
     out = dict(conversation)
@@ -120,6 +142,7 @@ def build_model_decision_context(
     budget: RunBudget,
     permitted_tools: Any = None,
     decision_constraints: Any = None,
+    skill_snapshot: Any = None,
 ) -> dict[str, Any]:
     """Return {system_prompt, user_payload, meta} within budget or raise."""
     terminal_only = bool(
@@ -127,7 +150,12 @@ def build_model_decision_context(
         and decision_constraints.get("terminal_only")
     )
     schema = decision_schema(terminal_only=terminal_only)
-    system_prompt = _system_prompt(terminal_only=terminal_only)
+    system_prompt = _system_prompt(
+        terminal_only=terminal_only, skill_snapshot=skill_snapshot
+    )
+    # Skill task instructions are mandatory — never trimmed like optional history.
+    if skill_snapshot is not None:
+        system_prompt = system_prompt + "\n\n" + skill_snapshot.prompt_block()
 
     projected, obs_meta = project_observations_for_model(
         observations,
@@ -146,13 +174,23 @@ def build_model_decision_context(
     truncated_history = False
 
     def _payload(conv_view: Any) -> dict[str, Any]:
+        # recent_document is mirrored near request_text so vague follow-ups see the
+        # same-session verified open before long transcript prose.
+        recent_hint = None
+        if isinstance(conv_view, Mapping):
+            candidate = conv_view.get("recent_document")
+            if isinstance(candidate, Mapping) and candidate.get("path"):
+                recent_hint = dict(candidate)
         user_payload: dict[str, Any] = {
             "request_text": request_text,
+            "recent_document": recent_hint,
             "conversation": conv_view,
             "observations": projected,
             "decision_schema": schema,
             "decision_mode": "terminal_only" if terminal_only else "normal",
         }
+        if recent_hint is None:
+            user_payload.pop("recent_document", None)
         if not terminal_only and permitted_tools is not None:
             user_payload["permitted_tools"] = permitted_tools
         return user_payload

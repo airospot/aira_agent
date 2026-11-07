@@ -154,6 +154,7 @@ class FlowLlmClient:
                 user_json,
                 timeout_seconds=call_timeout,
                 sent_bytes=sent_bytes,
+                decision_schema=safe_user.get("decision_schema"),
             )
         return self._complete_json_openai(
             system_prompt,
@@ -169,6 +170,7 @@ class FlowLlmClient:
         *,
         timeout_seconds: float,
         sent_bytes: int,
+        decision_schema: Any = None,
     ) -> dict[str, Any]:
         root = ollama_native_root(self.base_url)
         endpoint = f"{root}/api/chat"
@@ -176,6 +178,7 @@ class FlowLlmClient:
             "model": self.model,
             "stream": False,
             "think": bool(self.think),
+            "format": decision_schema if isinstance(decision_schema, dict) else "json",
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_json},
@@ -200,7 +203,7 @@ class FlowLlmClient:
             "input_tokens": payload.get("prompt_eval_count"),
             "output_tokens": payload.get("eval_count"),
             "total_tokens": None,
-            "structured_output": "prompt_json_only",
+            "structured_output": "json_schema" if isinstance(decision_schema, dict) else "json_object",
             "endpoint": endpoint,
             "retry": "none",
             "num_ctx": int(self.context_tokens),
