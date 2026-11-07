@@ -47,6 +47,35 @@ def _ensure_under(root: Path, candidate: Path) -> Path:
     return resolved
 
 
+def _reject_cross_tenant_symlink(
+    data_root: Path,
+    customer_id: int,
+    *parts: str,
+) -> Path:
+    """Resolve ``data_root/customer_id[/parts…]``; reject symlink into another tenant.
+
+    Compares the fully resolved path to the lexical path under this customer_id
+    (final components not rewritten by a symlink). Runs before mkdir/write.
+    """
+    data_root_r = data_root.resolve()
+    expected = data_root_r.joinpath(str(customer_id), *parts)
+    candidate = data_root.joinpath(str(customer_id), *parts)
+    try:
+        actual = candidate.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise TenantStorageError("tenant_path_escape") from exc
+    if actual != expected:
+        raise TenantStorageError("tenant_symlink_escape")
+    tenant_expected = data_root_r / str(customer_id)
+    try:
+        actual.relative_to(tenant_expected)
+    except ValueError as exc:
+        raise TenantStorageError("tenant_symlink_escape") from exc
+    if tenant_expected.name != str(customer_id):
+        raise TenantStorageError("tenant_symlink_escape")
+    return actual
+
+
 @dataclass(frozen=True)
 class TenantStorage:
     """Request-scoped paths; never mutate global Flask config from these."""
@@ -82,14 +111,16 @@ def resolve_tenant_storage(
     """Build tenant roots under TENANT_DATA_ROOT; no shared-corpus fallback."""
     cid = _positive_customer_id(customer_id)
     data_root = resolve_tenant_data_root(config)
-    # Integer segment only — blocks ../ and foreign path injection via id.
-    tenant_root = _ensure_under(data_root, data_root / str(cid))
-    uploads_root = tenant_root / "uploads"
-    corpus_root = tenant_root / "corpus"
+    # Reject before mkdir: tenant / uploads / corpus must not symlink elsewhere.
+    tenant_root = _reject_cross_tenant_symlink(data_root, cid)
+    uploads_root = _reject_cross_tenant_symlink(data_root, cid, "uploads")
+    corpus_root = _reject_cross_tenant_symlink(data_root, cid, "corpus")
     uploads_root.mkdir(parents=True, exist_ok=True)
     corpus_root.mkdir(parents=True, exist_ok=True)
-    _ensure_under(data_root, uploads_root)
-    _ensure_under(data_root, corpus_root)
+    # Re-check after create (TOCTOU-ish: catch swapped symlink between checks).
+    _reject_cross_tenant_symlink(data_root, cid)
+    _reject_cross_tenant_symlink(data_root, cid, "uploads")
+    _reject_cross_tenant_symlink(data_root, cid, "corpus")
     return TenantStorage(
         customer_id=cid,
         data_root=data_root,

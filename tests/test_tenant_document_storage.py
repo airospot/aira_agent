@@ -77,6 +77,45 @@ def test_resolver_fail_closed_and_under_data_root(tmp_path):
     assert "7" in str(st.tenant_root)
 
 
+def test_tenant_root_symlink_to_other_tenant_rejected(tmp_path):
+    root = tmp_path / "tenants"
+    cfg = {"TENANT_DATA_ROOT": str(root)}
+    resolve_tenant_storage(2, cfg)  # victim tenant materializes
+    # Attacker tenant id path is a symlink into tenant 2.
+    (root / "1").symlink_to(root / "2")
+    with pytest.raises(TenantStorageError, match="symlink"):
+        resolve_tenant_storage(1, cfg)
+    # Victim tree must not gain attacker-side writes via the link.
+    assert not (root / "2" / "uploads" / "from-1").exists()
+
+
+def test_uploads_root_symlink_to_other_tenant_rejected(tmp_path):
+    root = tmp_path / "tenants"
+    cfg = {"TENANT_DATA_ROOT": str(root)}
+    st2 = resolve_tenant_storage(2, cfg)
+    st1 = resolve_tenant_storage(1, cfg)
+    # Replace tenant 1 uploads with symlink to tenant 2 uploads.
+    import shutil
+
+    shutil.rmtree(st1.uploads_root)
+    (root / "1" / "uploads").symlink_to(st2.uploads_root)
+    with pytest.raises(TenantStorageError, match="symlink"):
+        resolve_tenant_storage(1, cfg)
+
+
+def test_corpus_root_symlink_to_other_tenant_rejected(tmp_path):
+    root = tmp_path / "tenants"
+    cfg = {"TENANT_DATA_ROOT": str(root)}
+    st2 = resolve_tenant_storage(2, cfg)
+    st1 = resolve_tenant_storage(1, cfg)
+    import shutil
+
+    shutil.rmtree(st1.corpus_root)
+    (root / "1" / "corpus").symlink_to(st2.corpus_root)
+    with pytest.raises(TenantStorageError, match="symlink"):
+        resolve_tenant_storage(1, cfg)
+
+
 def test_two_tenants_same_name_physically_isolated(tenant_app):
     app, root = tenant_app
     client = app.test_client()

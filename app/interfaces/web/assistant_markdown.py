@@ -66,22 +66,55 @@ def _inline(text: str) -> str:
     return text
 
 
+def _ends_with_unescaped_pipe(text: str) -> bool:
+    if not text.endswith("|"):
+        return False
+    bs = 0
+    i = len(text) - 2
+    while i >= 0 and text[i] == "\\":
+        bs += 1
+        i -= 1
+    return bs % 2 == 0
+
+
 def _split_table_row(line: str) -> list[str] | None:
-    """Return cells for a pipe row, or None if not a table row."""
+    """Return cells for a pipe row, or None if not a table row.
+
+    Escaped pipes (``\\|``) stay inside the cell as a literal ``|``.
+    """
     raw = line.strip()
     if "|" not in raw:
         return None
-    # Require a pipe-framed row (leading and/or trailing pipes OK).
-    if not (raw.startswith("|") or raw.endswith("|")):
+    # Require a pipe-framed row (leading and/or trailing unescaped pipes OK).
+    if not (raw.startswith("|") or _ends_with_unescaped_pipe(raw)):
         return None
-    parts = raw.split("|")
+
+    cells: list[str] = []
+    buf: list[str] = []
+    i = 0
+    n = len(raw)
+    while i < n:
+        ch = raw[i]
+        if ch == "\\" and i + 1 < n and raw[i + 1] == "|":
+            buf.append("|")
+            i += 2
+            continue
+        if ch == "|":
+            cells.append("".join(buf).strip())
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    cells.append("".join(buf).strip())
+
     if raw.startswith("|"):
-        parts = parts[1:]
-    if raw.endswith("|"):
-        parts = parts[:-1]
-    if len(parts) < 2:
+        cells = cells[1:]
+    if _ends_with_unescaped_pipe(raw) and cells:
+        cells = cells[:-1]
+    if len(cells) < 2:
         return None
-    return [p.strip() for p in parts]
+    return cells
 
 
 def _is_separator_row(cells: list[str]) -> bool:
@@ -91,7 +124,11 @@ def _is_separator_row(cells: list[str]) -> bool:
 
 
 def _try_parse_table(lines: list[str], start: int) -> tuple[str, int] | None:
-    """Parse a GFM-like pipe table starting at ``start``. Return (html, next_i)."""
+    """Parse a GFM-like pipe table starting at ``start``. Return (html, next_i).
+
+    Body rows with more cells than the header are not truncated — parsing stops
+    so the unsupported line can render as ordinary safe text without loss.
+    """
     if start >= len(lines):
         return None
     header = _split_table_row(lines[start])
@@ -113,11 +150,11 @@ def _try_parse_table(lines: list[str], start: int) -> tuple[str, int] | None:
         if _is_separator_row(row):
             # Extra separator mid-table → leave as plain text from here.
             break
-        # Pad/truncate to header width for stable HTML.
+        if len(row) > len(header):
+            # Do not silently drop cells — leave this line for safe text render.
+            break
         if len(row) < len(header):
             row = row + [""] * (len(header) - len(row))
-        elif len(row) > len(header):
-            row = row[: len(header)]
         body_rows.append(row)
         i += 1
 

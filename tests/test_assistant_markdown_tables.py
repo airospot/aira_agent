@@ -51,3 +51,36 @@ def test_show_image_markdown_still_renders_img():
     html = render_assistant_markdown(md)
     assert 'src="/agent/corpus/extracted_data/x/images/img_001.png"' in html
     assert 'class="agent-inline-image"' in html
+
+
+def test_escaped_pipe_in_cell_preserved_not_split():
+    md = (
+        "| Col | Val |\n"
+        "| --- | --- |\n"
+        "| a | b \\| c |\n"
+    )
+    html = render_assistant_markdown(md)
+    assert "<table>" in html
+    assert "<td>b | c</td>" in html
+    assert html.count("<td>") == 2
+
+
+def test_extra_cells_row_not_truncated_left_as_safe_text():
+    md = (
+        "| A | B |\n"
+        "| --- | --- |\n"
+        "| keep | me |\n"
+        "| too | many | cells |\n"
+        "after\n"
+    )
+    html = render_assistant_markdown(md)
+    assert "<td>keep</td>" in html
+    assert "<td>me</td>" in html
+    # Only header + one valid body row inside the table (no silent truncate).
+    assert html.count("<tr>") == 2
+    assert "<td>too</td>" not in html
+    assert "<td>many</td>" not in html
+    # Unsupported row kept as safe text with all cell tokens.
+    assert "| too | many | cells |" in html or (
+        "too" in html and "many" in html and "cells" in html and "<p>" in html
+    )
