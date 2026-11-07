@@ -26,11 +26,15 @@ AGENT_PAGE_TYPE = "Agent"
 _SOURCE_KIND_NOTE = (
     "active_conversation.turns is the only active dialogue for this session. "
     "long_term_memory / structured_memory are background user context only. "
-    "They must not override tool observations from file_read / file_search."
+    "They must not override tool observations from file_read / file_search. "
+    "historical_tool_references are not the active document; re-verify with tools."
 )
 
 _CONTEXT_POLICY = {
     "active_entity_source": "active_conversation.turns_and_current_request_only",
+    "document_reference_priority": (
+        "current_request_explicit_path_then_latest_opened_in_session_then_clarify"
+    ),
     "long_term_memory_role": (
         "authorized_user_history_and_preferences_not_automatic_entity_binding"
     ),

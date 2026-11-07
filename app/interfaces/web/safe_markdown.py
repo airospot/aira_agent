@@ -10,6 +10,7 @@ _INLINE_CODE = re.compile(r"`([^`]+)`")
 _BOLD = re.compile(r"\*\*([^*]+)\*\*")
 _IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 _LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+_TABLE_SEP_CELL = re.compile(r"^:?-{3,}:?$")
 
 
 def _safe_href(href: str) -> str:
@@ -60,8 +61,72 @@ def _inline(text: str) -> str:
     return text
 
 
+def _split_table_row(line: str) -> list[str] | None:
+    """Return cells for a pipe row, or None if not a table row."""
+    raw = line.strip()
+    if "|" not in raw:
+        return None
+    # Require a pipe-framed row (leading and/or trailing pipes OK).
+    if not (raw.startswith("|") or raw.endswith("|")):
+        return None
+    parts = raw.split("|")
+    if raw.startswith("|"):
+        parts = parts[1:]
+    if raw.endswith("|"):
+        parts = parts[:-1]
+    if len(parts) < 2:
+        return None
+    return [p.strip() for p in parts]
+
+
+def _is_separator_row(cells: list[str]) -> bool:
+    if not cells:
+        return False
+    return all(_TABLE_SEP_CELL.match(c.replace(" ", "")) for c in cells)
+
+
+def _try_parse_table(lines: list[str], start: int) -> tuple[str, int] | None:
+    """Parse a GFM-like pipe table starting at ``start``. Return (html, next_i)."""
+    if start >= len(lines):
+        return None
+    header = _split_table_row(lines[start])
+    if header is None or start + 1 >= len(lines):
+        return None
+    sep = _split_table_row(lines[start + 1])
+    if sep is None or not _is_separator_row(sep):
+        return None
+    # Ambiguous / invalid: separator column count must match header.
+    if len(sep) != len(header):
+        return None
+
+    body_rows: list[list[str]] = []
+    i = start + 2
+    while i < len(lines):
+        row = _split_table_row(lines[i])
+        if row is None:
+            break
+        if _is_separator_row(row):
+            # Extra separator mid-table → leave as plain text from here.
+            break
+        # Pad/truncate to header width for stable HTML.
+        if len(row) < len(header):
+            row = row + [""] * (len(header) - len(row))
+        elif len(row) > len(header):
+            row = row[: len(header)]
+        body_rows.append(row)
+        i += 1
+
+    thead = "<thead><tr>" + "".join(f"<th>{_inline(c)}</th>" for c in header) + "</tr></thead>"
+    tbody_cells = []
+    for row in body_rows:
+        tbody_cells.append("<tr>" + "".join(f"<td>{_inline(c)}</td>" for c in row) + "</tr>")
+    tbody = "<tbody>" + "".join(tbody_cells) + "</tbody>" if tbody_cells else "<tbody></tbody>"
+    html_table = f'<div class="table-scroll"><table>{thead}{tbody}</table></div>'
+    return html_table, i
+
+
 def render_safe_markdown(text: str) -> str:
-    """Escape first, then apply a limited Markdown subset."""
+    """Escape first, then apply a limited Markdown subset (incl. pipe tables)."""
     raw = text or ""
     escaped = html.escape(raw, quote=False)
     escaped = re.sub(r"(?i)javascript:", "", escaped)
@@ -82,6 +147,12 @@ def render_safe_markdown(text: str) -> str:
                 i += 1
             klass = f' class="language-{lang}"' if _SAFE_LANG.match(lang) else ""
             blocks.append(f"<pre><code{klass}>{chr(10).join(body)}</code></pre>")
+            continue
+        table = _try_parse_table(lines, i)
+        if table is not None:
+            html_table, next_i = table
+            blocks.append(html_table)
+            i = next_i
             continue
         if re.match(r"^###\s+", line):
             blocks.append(f"<h3>{_inline(line[4:].strip())}</h3>")
