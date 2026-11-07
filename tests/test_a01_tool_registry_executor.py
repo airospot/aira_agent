@@ -215,3 +215,44 @@ def test_symlink_escape_rejected_via_executor(tmp_path: Path) -> None:
     )
     assert search["status"] == "ok"
     assert search["matched_total"] == 0
+
+
+_MINI_PNG = (
+    b"\x89PNG\r\n\x1a\n"
+    + b"\x00\x00\x00\rIHDR"
+    + b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde"
+    + b"\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+def test_file_name_search_finds_png_by_name(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus"
+    (corpus / "images").mkdir(parents=True)
+    (corpus / "images" / "diagram.png").write_bytes(_MINI_PNG)
+    config = {"AGENT_CORPUS_DIR": str(corpus)}
+    ex = ToolExecutor(build_native_tool_registry(), permitted_names=NATIVE_TOOL_NAMES)
+
+    named = ex.execute(
+        "file_name_search", {"query": "diagram.png", "limit": 10}, config=config
+    )
+    assert named["status"] == "ok"
+    assert named["matched_total"] >= 1
+    assert any(c.get("path") == "images/diagram.png" for c in named["candidates"])
+    assert any(c.get("name") == "diagram.png" for c in named["candidates"])
+
+
+def test_file_name_search_rejects_png_symlink_escape(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    outside = tmp_path / "secret.png"
+    outside.write_bytes(_MINI_PNG)
+    (corpus / "leak.png").symlink_to(outside)
+    config = {"AGENT_CORPUS_DIR": str(corpus)}
+    ex = ToolExecutor(build_native_tool_registry(), permitted_names=NATIVE_TOOL_NAMES)
+
+    named = ex.execute(
+        "file_name_search", {"query": "leak.png", "limit": 10}, config=config
+    )
+    assert named["status"] == "ok"
+    assert named["matched_total"] == 0
+    assert named["candidates"] == []

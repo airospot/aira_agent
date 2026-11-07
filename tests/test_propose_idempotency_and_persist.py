@@ -105,11 +105,11 @@ def test_completed_replay_same_hash_no_second_llm(app_client) -> None:
 
     with (
         patch(
-            "app.interfaces.web.agent_routes.propose.run_knowledge_agent",
+            "app.domain.agents.run.adapters.run_knowledge_agent",
             side_effect=fake_run,
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.persist_turn",
+            "app.domain.agents.run.adapters.persist_turn",
             return_value={
                 "complete": True,
                 "assistant_memory_id": "am-1",
@@ -117,15 +117,15 @@ def test_completed_replay_same_hash_no_second_llm(app_client) -> None:
             },
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.load_flow_conversation",
+            "app.domain.agents.run.adapters.load_flow_conversation",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.list_agent_conversations",
+            "app.domain.agents.run.adapters.list_agent_conversations",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.resolve_session_id",
+            "app.domain.agents.run.adapters.resolve_session_id",
             return_value="sess-a00-1",
         ),
     ):
@@ -169,11 +169,11 @@ def test_same_id_different_content_rejected(app_client) -> None:
 
     with (
         patch(
-            "app.interfaces.web.agent_routes.propose.run_knowledge_agent",
+            "app.domain.agents.run.adapters.run_knowledge_agent",
             return_value=_agent_answer(),
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.persist_turn",
+            "app.domain.agents.run.adapters.persist_turn",
             return_value={
                 "complete": True,
                 "assistant_memory_id": "am-2",
@@ -181,15 +181,15 @@ def test_same_id_different_content_rejected(app_client) -> None:
             },
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.load_flow_conversation",
+            "app.domain.agents.run.adapters.load_flow_conversation",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.list_agent_conversations",
+            "app.domain.agents.run.adapters.list_agent_conversations",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.resolve_session_id",
+            "app.domain.agents.run.adapters.resolve_session_id",
             return_value="sess-a00-2",
         ),
     ):
@@ -229,11 +229,11 @@ def test_new_conversation_flag_changes_hash_scope(app_client) -> None:
 
     with (
         patch(
-            "app.interfaces.web.agent_routes.propose.run_knowledge_agent",
+            "app.domain.agents.run.adapters.run_knowledge_agent",
             return_value=_agent_answer(),
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.persist_turn",
+            "app.domain.agents.run.adapters.persist_turn",
             return_value={
                 "complete": True,
                 "assistant_memory_id": "am-3",
@@ -241,15 +241,15 @@ def test_new_conversation_flag_changes_hash_scope(app_client) -> None:
             },
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.load_flow_conversation",
+            "app.domain.agents.run.adapters.load_flow_conversation",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.list_agent_conversations",
+            "app.domain.agents.run.adapters.list_agent_conversations",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.resolve_session_id",
+            "app.domain.agents.run.adapters.resolve_session_id",
             return_value="sess-new",
         ),
     ):
@@ -289,23 +289,23 @@ def test_persist_failure_keeps_assistant_text_on_submission(app_client) -> None:
 
     with (
         patch(
-            "app.interfaces.web.agent_routes.propose.run_knowledge_agent",
+            "app.domain.agents.run.adapters.run_knowledge_agent",
             return_value=_agent_answer("Kaybolmamalı cevap"),
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.persist_turn",
+            "app.domain.agents.run.adapters.persist_turn",
             side_effect=RuntimeError("db down"),
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.load_flow_conversation",
+            "app.domain.agents.run.adapters.load_flow_conversation",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.list_agent_conversations",
+            "app.domain.agents.run.adapters.list_agent_conversations",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.resolve_session_id",
+            "app.domain.agents.run.adapters.resolve_session_id",
             return_value="sess-persist",
         ),
     ):

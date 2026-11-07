@@ -122,11 +122,11 @@ def test_concurrent_empty_new_submission_single_reservation(app_client) -> None:
         c = application.test_client()
         with (
             patch(
-                "app.interfaces.web.agent_routes.propose.run_knowledge_agent",
+                "app.domain.agents.run.adapters.run_knowledge_agent",
                 side_effect=fake_run,
             ),
             patch(
-                "app.interfaces.web.agent_routes.propose.persist_turn",
+                "app.domain.agents.run.adapters.persist_turn",
                 return_value={
                     "complete": True,
                     "assistant_memory_id": "am-race",
@@ -134,11 +134,11 @@ def test_concurrent_empty_new_submission_single_reservation(app_client) -> None:
                 },
             ),
             patch(
-                "app.interfaces.web.agent_routes.propose.load_flow_conversation",
+                "app.domain.agents.run.adapters.load_flow_conversation",
                 return_value=[],
             ),
             patch(
-                "app.interfaces.web.agent_routes.propose.list_agent_conversations",
+                "app.domain.agents.run.adapters.list_agent_conversations",
                 return_value=[],
             ),
         ):
@@ -194,11 +194,11 @@ def test_replay_rejects_different_session_allows_canonical(app_client) -> None:
 
     with (
         patch(
-            "app.interfaces.web.agent_routes.propose.run_knowledge_agent",
+            "app.domain.agents.run.adapters.run_knowledge_agent",
             side_effect=fake_run,
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.persist_turn",
+            "app.domain.agents.run.adapters.persist_turn",
             return_value={
                 "complete": True,
                 "assistant_memory_id": "am-s",
@@ -206,11 +206,11 @@ def test_replay_rejects_different_session_allows_canonical(app_client) -> None:
             },
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.load_flow_conversation",
+            "app.domain.agents.run.adapters.load_flow_conversation",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.list_agent_conversations",
+            "app.domain.agents.run.adapters.list_agent_conversations",
             return_value=[],
         ),
         patch(
@@ -271,19 +271,19 @@ def test_get_submission_recovery_requires_matching_session(app_client) -> None:
 
     with (
         patch(
-            "app.interfaces.web.agent_routes.propose.run_knowledge_agent",
+            "app.domain.agents.run.adapters.run_knowledge_agent",
             return_value=_agent_answer(answer_a),
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.persist_turn",
+            "app.domain.agents.run.adapters.persist_turn",
             side_effect=RuntimeError("skip memory"),
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.load_flow_conversation",
+            "app.domain.agents.run.adapters.load_flow_conversation",
             return_value=[],
         ),
         patch(
-            "app.interfaces.web.agent_routes.propose.list_agent_conversations",
+            "app.domain.agents.run.adapters.list_agent_conversations",
             return_value=[],
         ),
         patch(
