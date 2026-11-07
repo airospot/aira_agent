@@ -504,7 +504,6 @@ def _load_long_term_block(
                 page_type=AGENT_PAGE_TYPE,
                 exclude_session_id=session_id,
                 limit=5,
-                similarity_threshold=0.7,
                 customer_id=customer_id,
                 user_id=user_id,
                 strict=True,
