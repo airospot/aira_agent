@@ -15,6 +15,13 @@ from app.domain.agents.flow.execution.run_policy import (
     RunBudget,
     stop_incomplete_payload,
 )
+from app.domain.agents.skills.completion import (
+    content_answer_allowed,
+    correction_feedback_observation,
+    evidence_missing_code,
+    evidence_missing_reason,
+)
+from app.domain.agents.skills.snapshot import SkillSnapshot
 
 _LLM_OUTPUT_LIMIT_REASON = (
     "Model çıktı limiti doldu; geçerli bir karar JSON'u üretilmedi."
@@ -237,6 +244,16 @@ def _is_repeatable_success(tool_meta: Mapping[str, Any]) -> bool:
     return bool(tool_meta.get("repeatable"))
 
 
+def _tag_observation(observation: Any, tool_name: str) -> Any:
+    if not isinstance(observation, dict) or not tool_name:
+        return observation
+    if observation.get("tool"):
+        return observation
+    tagged = dict(observation)
+    tagged["tool"] = tool_name
+    return tagged
+
+
 def run_agent_loop(
     request_text: str,
     conversation: Any,
@@ -247,10 +264,15 @@ def run_agent_loop(
     *,
     budget: RunBudget | None = None,
     tool_meta_lookup: Callable[[str], Mapping[str, Any] | None] | None = None,
+    skill_snapshot: SkillSnapshot | None = None,
 ) -> dict[str, Any]:
     observations: list[Any] = []
     prior_tool_results: dict[str, dict[str, Any]] = {}
     awaiting_terminal_only = False
+    require_read = bool(
+        skill_snapshot is not None
+        and skill_snapshot.requires_file_read_for_content_answer()
+    )
 
     if budget is not None:
         steps = budget.policy.max_steps
@@ -346,6 +368,28 @@ def run_agent_loop(
             return _failure("validate", exc)
 
         if action in _TERMINAL:
+            if (
+                action == "ANSWER"
+                and require_read
+                and not content_answer_allowed(observations)[0]
+            ):
+                # Do not accept content-report ANSWER without file_read evidence.
+                already_nudged = any(
+                    isinstance(obs, dict)
+                    and obs.get("status") == "skill_requirement"
+                    and obs.get("error") == evidence_missing_code()
+                    for obs in observations
+                )
+                if terminal_only or step >= steps or already_nudged:
+                    return _stop_incomplete(
+                        evidence_missing_reason(),
+                        observations,
+                        code=evidence_missing_code(),
+                    )
+                # One limited correction feedback, then continue within budget.
+                observations.append(correction_feedback_observation())
+                awaiting_terminal_only = False
+                continue
             out = {
                 "status": action,
                 "decision": decision,
@@ -402,6 +446,7 @@ def run_agent_loop(
             except Exception as exc:  # noqa: BLE001
                 return _failure("execute_tool", exc)
 
+            observation = _tag_observation(observation, tool_name)
             if budget is not None and budget.deadline_exceeded():
                 # Late result is not treated as normal success for continuation.
                 budget.mark_deadline()

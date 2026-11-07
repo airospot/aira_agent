@@ -57,13 +57,13 @@ def request_model_decision(
         }
         if not terminal_only and permitted_tools is not None:
             user_payload["permitted_tools"] = permitted_tools
-        system_prompt = AGENT_SYSTEM_PROMPT
-        if terminal_only:
-            from app.domain.agents.flow.execution.decision.context_builder import (
-                _TERMINAL_ONLY_SYSTEM_SUFFIX,
-            )
+        from app.domain.agents.flow.execution.decision.context_builder import (
+            _system_prompt,
+        )
 
-            system_prompt = AGENT_SYSTEM_PROMPT + _TERMINAL_ONLY_SYSTEM_SUFFIX
+        system_prompt = _system_prompt(
+            terminal_only=terminal_only, skill_snapshot=skill_snapshot
+        )
         if skill_snapshot is not None:
             system_prompt = system_prompt + "\n\n" + skill_snapshot.prompt_block()
         return client.complete_json(system_prompt, user_payload)

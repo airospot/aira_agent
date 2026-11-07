@@ -202,17 +202,26 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - Teslim commit SHA: `79e9e6b` (dal HEAD `b353c92`)
 - GitHub PR: https://github.com/airospot/aira_agent/pull/6 (draft; base `codex/agent-a03-run-budgets`)
 
-- Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **155 passed** (skip yok)
+- Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **165 passed** (skip yok)
 - Gerçek PostgreSQL: suite `NATIVE_FLOW_A00_TEST` ile geçti; A04 DB migration yok
-- Gerçek model / browser: **BEKLEMEDE** (aşağıdaki kısa UAT sahip onayı)
+- Gerçek model / browser: kısmi — canlı decide’da `FlowLlmClientError` (model VRAM unload); completion gate scripted+native tools ile doğrulandı (aşağı). Sahip browser UAT **BEKLEMEDE**
 - Manuel UAT: **BEKLEMEDE**
 - `AGENT_SKILL_MAX_BYTES=65536` (`.env` / `.env.example`; kod fallback yok)
 - Merge / A05: yok
 
+### A04 UAT kusur düzeltmesi (2026-11-07)
+
+- Sorun: `file_name_search` sonrası içerik `file_read` olmadan inceleme ANSWER
+- Düzeltme: `completion_requirements.content_answer_requires_file_read`; loop ANSWER kapısı; bir correction feedback veya `skill_evidence_missing` STOP_INCOMPLETE; review terminal-only suffix; SKILL.md sıra net
+- Processing submission: inspector eski turn trace’ini bu run’a bağlama
+- Otomatik: search-only ANSWER reddi; read sonrası kabul; meta.json/boş içerik kanıt değil; Standart etkilenmez; turn overlay testleri
+- Scripted+native: search → sahte ANSWER → skill_requirement → file_read → ANSWER (`ALTAR-99-QX`)
+- Merge/A05: yok
+
 ### A04 kısa UAT (kullanıcı)
 
-1. Gerekirse frontend’den mevcut `uat-guide.md` yükle. Yeni konuşma → **Belge inceleme** → “uat-guide.md belgesini incele; özeti, eksik bilgileri ve kaynaklarını ver.”
-2. Beklenen: TRY/kurallar doğru; teslimat tarihi yoksa uydurulmaz; örnek kalemler gerçek DB diye sunulmaz. Trace’te skill id/version/digest + effective tools; tool çağrıları görünür.
-3. Aynı modda “Bu belgenin teslimat tarihi nedir?” → tarih uydurulmaz; takip doğru belgeye bağlanır.
-4. **Standart** ile aynı belgeyi özetle → temel mod çalışır; yeni run trace’inde skill uygulanmış gibi görünmez.
-5. **Belge inceleme** + `03_lowres_scan_inside_word.docx` incele → görsel iste → gerçek ad/doğru görsel. Yeni konuşma → Standart varsayılan.
+1. Gerekirse frontend’den mevcut fixture yükle (örn. `06_negative_missing_fact` veya `uat-guide.md`). Yeni konuşma → **Belge inceleme** → belgeyi incele; özet/eksik/kaynak iste.
+2. Trace: `file_name_search` **sonrası** `file_read`; cevap okunan metne dayansın; addan teslimat tarihi uydurulmasın. Skill id/version/digest görünür.
+3. “Bu belgenin teslimat tarihi nedir?” → yoksa uydurma.
+4. **Standart** ile özet → skill uygulanmış gibi görünmez.
+5. **Belge inceleme** + `03_lowres_scan_inside_word.docx` → görsel; yeni konuşma → Standart.

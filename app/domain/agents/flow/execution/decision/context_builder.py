@@ -28,6 +28,13 @@ _TERMINAL_ONLY_SYSTEM_SUFFIX = """
 This turn is terminal-only. The decision_schema permits only ANSWER, CLARIFY, or STOP_INCOMPLETE. CALL_TOOL is not permitted. Use only the observations already provided; do not invent missing technical fields. Partial catalog evidence (presence, group, selectability, source identity, missing description) is enough for a limited ANSWER when present.
 """
 
+_TERMINAL_ONLY_DOCUMENT_REVIEW_SUFFIX = """
+
+This turn is terminal-only. The decision_schema permits only ANSWER, CLARIFY, or STOP_INCOMPLETE. CALL_TOOL is not permitted. Use only the observations already provided; do not invent missing technical fields.
+
+Document-review exception: search/catalog hits (file presence, name, size, directory, meta.json) are NOT enough for a content-review ANSWER. A successful file_read observation with document body text is required before writing content findings. If the file was not found, say so honestly — do not invent content and do not ask the user for extracted_data/ or content.md technical paths. Use original source_filename in user-facing titles.
+"""
+
 
 class ContextBuildError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
@@ -36,10 +43,20 @@ class ContextBuildError(RuntimeError):
         self.message = message
 
 
-def _system_prompt(*, terminal_only: bool) -> str:
+def _system_prompt(*, terminal_only: bool, skill_snapshot: Any = None) -> str:
+    prompt = AGENT_SYSTEM_PROMPT
     if terminal_only:
-        return AGENT_SYSTEM_PROMPT + _TERMINAL_ONLY_SYSTEM_SUFFIX
-    return AGENT_SYSTEM_PROMPT
+        review = bool(
+            skill_snapshot is not None
+            and getattr(skill_snapshot, "requires_file_read_for_content_answer", None)
+            and skill_snapshot.requires_file_read_for_content_answer()
+        )
+        prompt = prompt + (
+            _TERMINAL_ONLY_DOCUMENT_REVIEW_SUFFIX
+            if review
+            else _TERMINAL_ONLY_SYSTEM_SUFFIX
+        )
+    return prompt
 
 
 def _conversation_for_model(conversation: Any) -> Any:
@@ -128,7 +145,9 @@ def build_model_decision_context(
         and decision_constraints.get("terminal_only")
     )
     schema = decision_schema(terminal_only=terminal_only)
-    system_prompt = _system_prompt(terminal_only=terminal_only)
+    system_prompt = _system_prompt(
+        terminal_only=terminal_only, skill_snapshot=skill_snapshot
+    )
     # Skill task instructions are mandatory — never trimmed like optional history.
     if skill_snapshot is not None:
         system_prompt = system_prompt + "\n\n" + skill_snapshot.prompt_block()

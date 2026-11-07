@@ -240,24 +240,49 @@ def assistant():
                 past = []
 
             turns = overlay_submission_reply(turns, agent_reply=agent_reply)
-            turn_ref = (
-                requested_turn
-                or submission_display.get("assistant_memory_id")
-                or last_ui.get("assistant_memory_id")
+            # In-flight submission must not inherit another turn's inspector/trace.
+            submission_status = (
+                str(submission_row.get("status") or "") if submission_row else ""
             )
-            try:
-                overlay = load_turn_trace(
-                    session_id=session_id,
-                    customer_id=customer_id,
-                    user_id=user_id,
-                    turn_id=turn_ref,
+            if requested_submission and submission_status == "processing":
+                flow_timeline = None
+                decision_trace = None
+                selected_turn_id = None
+            else:
+                turn_ref = requested_turn or submission_display.get(
+                    "assistant_memory_id"
                 )
-                if overlay and overlay.get("has_trace"):
-                    flow_timeline = overlay.get("flow_timeline")
-                    decision_trace = overlay.get("decision_trace")
-                    selected_turn_id = overlay.get("turn_id")
-            except Exception:
-                current_app.logger.exception("agent_turn_trace_load_failed")
+                # Prefer this submission's assistant turn; only then last_ui / latest.
+                if not turn_ref and not requested_submission:
+                    turn_ref = last_ui.get("assistant_memory_id")
+                try:
+                    overlay = load_turn_trace(
+                        session_id=session_id,
+                        customer_id=customer_id,
+                        user_id=user_id,
+                        turn_id=turn_ref,
+                    )
+                    if overlay and overlay.get("has_trace"):
+                        # If URL names a submission whose assistant id differs from
+                        # the loaded turn, prefer the submission-bound turn.
+                        bound_aid = submission_display.get("assistant_memory_id")
+                        if (
+                            bound_aid is not None
+                            and overlay.get("turn_id") is not None
+                            and str(bound_aid) != str(overlay["turn_id"])
+                        ):
+                            overlay = load_turn_trace(
+                                session_id=session_id,
+                                customer_id=customer_id,
+                                user_id=user_id,
+                                turn_id=bound_aid,
+                            )
+                        if overlay and overlay.get("has_trace"):
+                            flow_timeline = overlay.get("flow_timeline")
+                            decision_trace = overlay.get("decision_trace")
+                            selected_turn_id = overlay.get("turn_id")
+                except Exception:
+                    current_app.logger.exception("agent_turn_trace_load_failed")
     else:
         last_ui = pop_last_ui_for_session(session, None) or {}
         if last_ui.get("memory_error") and not memory_error:

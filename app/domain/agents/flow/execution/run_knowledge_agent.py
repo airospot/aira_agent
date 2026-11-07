@@ -270,6 +270,7 @@ def run_knowledge_agent(
         execute_tool=_execute_tool,
         budget=budget,
         tool_meta_lookup=_tool_meta_lookup,
+        skill_snapshot=skill_snapshot,
     )
     status = result.get("status")
     action = None

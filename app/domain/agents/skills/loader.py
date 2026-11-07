@@ -234,6 +234,11 @@ def load_skill_snapshot(
         instructions=instructions,
         resources=resource_pairs,
     )
+    completion = metadata.get("completion_requirements") or {}
+    requires_read = bool(
+        isinstance(completion, dict)
+        and completion.get("content_answer_requires_file_read")
+    )
     return SkillSnapshot(
         skill_id=normalized,
         version=str(metadata["version"]),
@@ -243,6 +248,7 @@ def load_skill_snapshot(
         required_tools=required,
         resources=tuple(resource_rows),
         content_digest=digest,
+        content_answer_requires_file_read=requires_read,
     )
 
 

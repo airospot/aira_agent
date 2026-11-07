@@ -24,6 +24,7 @@ class SkillSnapshot:
     required_tools: frozenset[str]
     resources: tuple[SkillResource, ...]
     content_digest: str
+    content_answer_requires_file_read: bool = False
 
     def public_meta(self) -> dict[str, object]:
         """Trace/persist-safe fields only (no full instructions/body)."""
@@ -32,6 +33,9 @@ class SkillSnapshot:
             "version": self.version,
             "digest": self.content_digest,
         }
+
+    def requires_file_read_for_content_answer(self) -> bool:
+        return bool(self.content_answer_requires_file_read)
 
     def prompt_block(self) -> str:
         """Mandatory skill task layer (distinct from user document content)."""

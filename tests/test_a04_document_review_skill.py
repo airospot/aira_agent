@@ -60,7 +60,8 @@ def test_load_valid_document_review(skill_cfg: dict) -> None:
     assert "file_read" in snap.required_tools
     assert snap.allowed_tools <= frozenset(NATIVE_TOOL_NAMES)
     assert snap.content_digest
-    assert "Belge inceleme" in snap.instructions or "belge" in snap.instructions.lower()
+    assert snap.requires_file_read_for_content_answer()
+    assert "file_read" in snap.instructions.lower()
     assert any(r.name == "checklist" for r in snap.resources)
     # Snapshot immutable-ish: public meta has no full body.
     meta = snap.public_meta()
@@ -337,7 +338,7 @@ def test_runner_catalog_matches_effective_tools(
 ) -> None:
     corpus = tmp_path / "c"
     corpus.mkdir()
-    (corpus / "a.md").write_text("hello", encoding="utf-8")
+    (corpus / "a.md").write_text("hello-body", encoding="utf-8")
     snap = load_skill_snapshot(DOCUMENT_REVIEW_SKILL_ID, config=skill_cfg)
     assert snap is not None
     effective = bind_skill_tools(
@@ -345,17 +346,33 @@ def test_runner_catalog_matches_effective_tools(
         server_permitted=frozenset(NATIVE_TOOL_NAMES),
         registry_names=frozenset(NATIVE_TOOL_NAMES),
     )
+    phase = {"n": 0}
 
     class Client:
         timeout_seconds = 30
         last_meta = {}
 
         def complete_json(self, system_prompt, user_payload, **kwargs):
+            phase["n"] += 1
+            assert "Active application skill" in system_prompt
+            mode = user_payload.get("decision_mode")
             tools = user_payload.get("permitted_tools") or []
             names = {t.get("name") for t in tools if isinstance(t, dict)}
-            assert names == set(effective)
-            assert "Active application skill" in system_prompt
-            return {"action": "ANSWER", "answer": "ok"}
+            if mode != "terminal_only":
+                assert names == set(effective)
+            if phase["n"] == 1:
+                return {
+                    "action": "CALL_TOOL",
+                    "tool": "file_name_search",
+                    "arguments": {"query": "a.md"},
+                }
+            if phase["n"] == 2:
+                return {
+                    "action": "CALL_TOOL",
+                    "tool": "file_read",
+                    "arguments": {"path": "a.md"},
+                }
+            return {"action": "ANSWER", "answer": "ok from content"}
 
     with patch(
         "app.domain.agents.flow.execution.run_knowledge_agent.create_flow_llm_client",

@@ -73,5 +73,12 @@ SKILL_METADATA_SCHEMA: dict = {
                 },
             },
         },
+        "completion_requirements": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "content_answer_requires_file_read": {"type": "boolean"},
+            },
+        },
     },
 }
