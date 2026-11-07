@@ -1,9 +1,8 @@
 """Flask-session store for Agent POST idempotency + thin PRG pointers.
 
-Flow Timeline / Decision Trace are persisted on assistant turn metadata
-(``ConversationMemory.metadata``) — not in the cookie — so PRG/refresh survive
-cookie size limits. This store only keeps submission dedupe keys and a thin
-pointer to the last turn id.
+Full agent answers live in ``agent_submissions.result_json`` (server DB), not
+in the signed session cookie. This store only keeps submission dedupe keys and
+a thin pointer (ids / short flags) so PRG/refresh survive cookie size limits.
 """
 
 from __future__ import annotations
@@ -15,16 +14,34 @@ _SUBMISSIONS_KEY = "agent_submissions"
 _LAST_UI_KEY = "agent_last_ui"
 _MAX_SUBMISSIONS = 40
 
-# Keep cookie payloads small: never put timeline/trace blobs here.
+# Keep cookie payloads small: never put full answers / timeline blobs here.
+# Short operational agent_notice may remain; long clarify/answer text is DB-only.
 _FORBIDDEN_BLOB_KEYS = frozenset(
     {
         "flow_timeline",
         "decision_trace",
         "flow_events",
         "agent_reply",
+        "assistant_text",
         "request_text",
     }
 )
+
+# Keys allowed in the thin cookie pointer (everything else dropped too).
+_ALLOWED_THIN_KEYS = frozenset(
+    {
+        "session_id",
+        "submission_id",
+        "assistant_memory_id",
+        "user_memory_id",
+        "memory_error",
+        "flow_status",
+        "replayed",
+        "past_count",
+        "agent_notice",
+    }
+)
+_MAX_COOKIE_NOTICE_CHARS = 240
 
 
 def mint_submission_id() -> str:
@@ -41,6 +58,14 @@ def _thin_payload(payload: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for k, v in payload.items():
         if k in _FORBIDDEN_BLOB_KEYS:
+            continue
+        if k not in _ALLOWED_THIN_KEYS:
+            continue
+        if k == "agent_notice":
+            text = str(v or "")
+            if len(text) > _MAX_COOKIE_NOTICE_CHARS:
+                continue
+            out[k] = text
             continue
         out[k] = v
     return out
@@ -89,7 +114,7 @@ def remember_submission(
 def pop_last_ui_for_session(
     flask_session: Mapping[str, Any] | None, session_id: str | None
 ) -> dict[str, Any] | None:
-    """Thin last-turn pointer for this conversation (timeline loaded from DB)."""
+    """Thin last-turn pointer for this conversation (answers loaded from DB)."""
     if flask_session is None:
         return None
     row = flask_session.get(_LAST_UI_KEY)

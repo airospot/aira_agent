@@ -15,15 +15,29 @@ cp .env.example .env
 
 `.env` içine gerçek `SECRET_KEY`, `DATABASE_URL` ve `KNOWLEDGE_FLOW_LLM_API_KEY` yazın. Bu değerler pakette yoktur.
 
+`SECRET_KEY` boş veya placeholder olamaz. `AUTH_DISABLED` kapalıysa `LOGIN_UI_URL` zorunludur (varsayılan provider login yolu uydurulmaz). Yerel geliştirmede `AUTH_DISABLED=1` kullanılabilir.
+
+Geliştirme testleri:
+
+```bash
+pip install -r requirements-dev.txt
+# isteğe bağlı gerçek PG: ayrı DB (ör. NATIVE_FLOW_A00_TEST)
+export A00_TEST_DATABASE_URL="postgresql://USER:PASS@127.0.0.1:5432/NATIVE_FLOW_A00_TEST"
+pytest -q
+```
+
 PostgreSQL ve pgvector:
 
 ```bash
 python migrations/create_conversation_memory_table.py
 python migrations/add_embedding_to_conversation_memory.py
+python migrations/create_agent_submissions_table.py
 psql "$DATABASE_URL" -f schema/structured_memory.sql
 ```
 
-İlk betik `conversation_memory` tablosunu kurar. İkincisi `embedding vector(1536)` kolonunu ekler. `schema/structured_memory.sql`, kaynakta migration'ı olmayan `extracted_memory` ve `memory_event_log` tablolarının ORM karşılığıdır.
+İlk betik `conversation_memory` tablosunu kurar. İkincisi `embedding vector(1536)` kolonunu ekler. Üçüncüsü `agent_submissions` tablosunu kurar (tenant/user kapsamlı propose idempotency; PK: `customer_id, user_id, submission_id`). `schema/structured_memory.sql`, kaynakta migration'ı olmayan `extracted_memory` ve `memory_event_log` tablolarının ORM karşılığıdır.
+
+Migration betikleri `DATABASE_URL` (veya zorunlu `POSTGRES_*`) ile bağlanır; süreç ortamı `.env` üzerine yazılmaz (`load_dotenv(..., override=False)`).
 
 `ConversationMemory.user_id` modeli `users.user_id` ilişkisi taşır. Kaynak migration bu yabancı anahtarı yaratmaz. Kullanıcı tablosu yoksa bellek satırı, ilişki JOIN'i çalışana kadar yazılabilir.
 
@@ -41,7 +55,9 @@ POST API: `/agent/assistant/propose`
 
 Sağlık: `/health`
 
-Ekran JWT ister. Kimlik doğrulama `app/core/security.py` üzerinden dış Auth Provider'a gider. `AUTH_PROVIDER_URL` boşsa varsayılan `https://auth.airaintelligence.ai` olur.
+Ekran JWT ister (`AUTH_DISABLED` kapalıyken). Kimlik doğrulama `app/core/security.py` üzerinden dış Auth Provider'a gider; `LOGIN_UI_URL` gerçek giriş adresini tanımlar. `AUTH_PROVIDER_URL` boşsa varsayılan `https://auth.airaintelligence.ai` olur.
+
+`POST /agent/assistant/propose` aynı `(customer_id, user_id, submission_id)` için tek agent çalışması rezervasyonu kullanır. Tamamlanan istek yeniden oynatılır; zaman aşımı/hata otomatik yeniden LLM çağırmaz. Aynı ID ile farklı soru/konuşma 400 döner.
 
 CONFIG araması için `KNOWLEDGE_FLOW_CONFIG_CORPUS_CUSTOMER_ALLOWLIST` dolu olmalıdır. Boş liste isteği reddeder.
 

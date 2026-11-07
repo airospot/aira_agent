@@ -29,6 +29,62 @@ def hash_request(
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def hash_for_reservation(
+    *,
+    request_text: str,
+    new_conversation: bool,
+    explicit_session_id: str | None,
+) -> str:
+    """Hash used when creating a reservation.
+
+    New-conversation and empty-session starts omit session_id so concurrent
+    first lookups that each mint a different UUID still share one hash.
+    Explicit conversation continues include the client-provided session_id.
+    """
+    explicit = str(explicit_session_id or "").strip() or None
+    if new_conversation or not explicit:
+        return hash_request(
+            request_text=request_text,
+            session_id=None,
+            new_conversation=new_conversation,
+        )
+    return hash_request(
+        request_text=request_text,
+        session_id=explicit,
+        new_conversation=new_conversation,
+    )
+
+
+def hash_matches_stored(
+    *,
+    stored_hash: str | None,
+    request_text: str,
+    new_conversation: bool,
+    canonical_session_id: str | None,
+) -> bool:
+    """True if request matches the reserved hash (unscoped or canonical-scoped)."""
+    stored = str(stored_hash or "").strip()
+    if not stored:
+        return False
+    unscoped = hash_request(
+        request_text=request_text,
+        session_id=None,
+        new_conversation=new_conversation,
+    )
+    if stored == unscoped:
+        return True
+    canonical = str(canonical_session_id or "").strip() or None
+    if canonical:
+        scoped = hash_request(
+            request_text=request_text,
+            session_id=canonical,
+            new_conversation=new_conversation,
+        )
+        if stored == scoped:
+            return True
+    return False
+
+
 def _row_to_dict(row: Mapping[str, Any] | None) -> dict[str, Any] | None:
     if row is None:
         return None
