@@ -1,4 +1,9 @@
-"""Minimal safe markdown render for assistant transcripts."""
+"""Assistant transcript Markdown → HTML (escape-first, limited subset).
+
+Renders agent reply / turn prose for the chat UI: headings, lists, fenced
+code, pipe tables (``table-scroll``), bold/inline code, and sanitized
+corpus/http links and images. Not a general-purpose Markdown engine.
+"""
 
 from __future__ import annotations
 
@@ -125,8 +130,8 @@ def _try_parse_table(lines: list[str], start: int) -> tuple[str, int] | None:
     return html_table, i
 
 
-def render_safe_markdown(text: str) -> str:
-    """Escape first, then apply a limited Markdown subset (incl. pipe tables)."""
+def render_assistant_markdown(text: str) -> str:
+    """Escape first, then apply the assistant Markdown subset (incl. pipe tables)."""
     raw = text or ""
     escaped = html.escape(raw, quote=False)
     escaped = re.sub(r"(?i)javascript:", "", escaped)

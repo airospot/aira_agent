@@ -5,7 +5,7 @@ Aşağıdaki farklar yalnız paketin `python app.py` ile ayağa kalkması içind
 
 | Paket dosyası | Kaynak | Gerekçe |
 | --- | --- | --- |
-| `app.py` | Yok. Karşılığı `airacoder_new_version/app/__init__.py` içindeki `create_app`. | Kaynak factory Socket.IO, tüm ürün blueprint'leri ve veritabanı önbelleğini başlatır. Bu dosya yalnız Agent blueprint'ini `/agent` altına kaydeder, `safe_markdown` filtresini bağlar, statik dosyayı sunar ve JWT ön kontrolünü kaynak `register_aira_knowledge` ile aynı yolda çalıştırır. `register_aira_knowledge` çağrılmaz; o fonksiyon diğer Knowledge blueprint'lerini yükler ve import hatalarını yutar. |
+| `app.py` | Yok. Karşılığı `airacoder_new_version/app/__init__.py` içindeki `create_app`. | Kaynak factory Socket.IO, tüm ürün blueprint'leri ve veritabanı önbelleğini başlatır. Bu dosya yalnız Agent blueprint'ini `/agent` altına kaydeder, `assistant_markdown` filtresini bağlar, statik dosyayı sunar ve JWT ön kontrolünü kaynak `register_aira_knowledge` ile aynı yolda çalıştırır. `register_aira_knowledge` çağrılmaz; o fonksiyon diğer Knowledge blueprint'lerini yükler ve import hatalarını yutar. |
 | `app/__init__.py` | `app/__init__.py` | Kaynak modül tüm AiraCoder uygulamasını kurar. Paket kökü boş bırakıldı. |
 | `app/core/__init__.py` | `app/core/__init__.py` | Kaynak, monolith `Config` sınıfını ve `config_manager` yeniden ihracını import anında yükler. |
 | `app/domain/agents/__init__.py` | `app/domain/agents/__init__.py` | Kaynak; code analyzer, tool router ve intent classifier'ı import anında yükler. Flow belleği yalnız `memory_service` çağırır. `from app.domain.agents import memory_service` yolu duruyor. |

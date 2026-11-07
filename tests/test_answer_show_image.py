@@ -5,7 +5,7 @@ from __future__ import annotations
 from app.domain.agents.flow.execution.answer_show_image import (
     enrich_answer_with_show_images,
 )
-from app.interfaces.web.safe_markdown import render_safe_markdown
+from app.interfaces.web.assistant_markdown import render_assistant_markdown
 
 _URL = "/agent/corpus/images/figure-1.png"
 
@@ -16,7 +16,7 @@ def test_plain_url_becomes_markdown_image():
     out = enrich_answer_with_show_images(answer, obs)
     assert f"![görsel]({_URL})" in out
     assert out.count(_URL) == 1
-    html = render_safe_markdown(out)
+    html = render_assistant_markdown(out)
     assert 'class="agent-inline-image"' in html
     assert f'src="{_URL}"' in html
 
