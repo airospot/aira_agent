@@ -199,8 +199,8 @@ UAT corpus’una yalnız bu sentetik içerik ve gerekli küçük sentetik görse
 - Başlangıç SHA: `63be6a7` (`codex/agent-a03-run-budgets` / PR #5 head)
 - PR tabanı (stacked): A03 henüz main’de değil; PR #4 (`codex/tenant-document-storage`, open) ve PR #5 (`codex/agent-a03-run-budgets`, open) **merge edilmedi** — bu görev onları merge etmez
 - Dal: `codex/agent-a04-document-review-skill` (A03 head’den)
-- Teslim commit SHA: `79e9e6b`
-- GitHub PR: (oluşturulunca)
+- Teslim commit SHA: `79e9e6b` (dal HEAD `b353c92`)
+- GitHub PR: https://github.com/airospot/aira_agent/pull/6 (draft; base `codex/agent-a03-run-budgets`)
 
 - Otomatik test: `A00_TEST_DATABASE_URL=…/NATIVE_FLOW_A00_TEST pytest -q` → **155 passed** (skip yok)
 - Gerçek PostgreSQL: suite `NATIVE_FLOW_A00_TEST` ile geçti; A04 DB migration yok
