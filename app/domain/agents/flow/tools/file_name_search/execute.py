@@ -9,7 +9,6 @@ from typing import Any, Mapping
 from jsonschema import Draft202012Validator
 
 from app.shared.corpus_path_sandbox import (
-    is_probably_text,
     is_resolved_under_corpus,
     resolve_corpus_root,
 )
@@ -75,8 +74,7 @@ def _search_names(
             rel = str(path.relative_to(root))
         except ValueError:
             continue
-        if not is_probably_text(path):
-            continue
+        # Name/path match only — do not filter by text/binary (PNG etc. are valid).
         if needle not in rel.lower() and needle not in path.name.lower():
             continue
         try:
